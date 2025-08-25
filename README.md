@@ -1,70 +1,135 @@
-# Getting Started with Create React App
+# CareerAI - Your AI-Powered Career Companion
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+CareerAI is the ultimate platform designed to help you prepare, practice, and land your dream job. Our comprehensive suite of AI-powered tools covers every aspect of your career journey.
 
-## Available Scripts
+## 🚀 Key Features
 
-In the project directory, you can run:
+- **🎯 Interactive Interview Prep Assistant**: Topic-wise concept explanations, quizzes, and real-time Q&A
+- **📊 Personal Progress Tracker**: Automatically records your learning journey and visualizes strengths/weaknesses
+- **📝 Smart Resume Builder**: ATS-friendly resumes with AI-suggested content and exportable templates
+- **🔄 JD-Based Resume Rewriter**: Tailors your resume perfectly to each job description
+- **🧪 Assessment Engine**: Dynamic quizzes and coding tests for technical and soft skills
+- **🔍 AI Job Finder & Quick Apply**: Personalized job listings with one-click tailored applications
+- **🎤 Voice-Based Mock Interview Agent**: AI interviewer that listens, responds, and gives instant feedback
+- **🏢 Company Q&A Miner**: Curates past interview questions from top companies with AI-powered critiques
 
-### `npm start`
+## 🛠️ Tech Stack
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### Frontend
+- React 19.1.1
+- React Router v7.8.1 for navigation
+- Modern CSS with responsive design
+- Interactive animations and micro-interactions
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+### Backend
+- Python Flask
+- RESTful API endpoints
+- CORS enabled for frontend integration
+- Mock data for development
 
-### `npm test`
+## 🚀 Getting Started
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### Prerequisites
+- Node.js (v16 or higher)
+- Python 3.7 or higher
+- npm or yarn
 
-### `npm run build`
+### Frontend Setup
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+2. Start the development server:
+   ```bash
+   npm start
+   ```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+3. Open [http://localhost:3000](http://localhost:3000) to view the app
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### Backend Setup
+1. Navigate to the Backend directory:
+   ```bash
+   cd Backend
+   ```
 
-### `npm run eject`
+2. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+3. Start the Flask server:
+   ```bash
+   python app.py
+   ```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+4. The API will be available at [http://localhost:5000](http://localhost:5000)
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## 📁 Project Structure
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+```
+CareerAI/
+├── src/                    # Frontend source code
+│   ├── components/         # Reusable UI components
+│   │   ├── Header.js      # Navigation header
+│   │   └── Footer.js      # Site footer
+│   ├── pages/             # Page components
+│   │   └── Home.js        # Landing page
+│   ├── App.js             # Main application component
+│   └── index.js           # Application entry point
+├── Backend/               # Python backend
+│   ├── app.py             # Flask application
+│   └── requirements.txt   # Python dependencies
+├── public/                # Static assets
+└── package.json           # Frontend dependencies
+```
 
-## Learn More
+## 🔌 API Endpoints
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+- `GET /api/features` - Get all platform features
+- `GET /api/progress/{user_id}` - Get user progress
+- `GET /api/interview-questions` - Get interview questions
+- `POST /api/resume-suggestions` - Get AI resume suggestions
+- `POST /api/mock-interview` - Start mock interview session
+- `POST /api/job-recommendations` - Get personalized job recommendations
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## 📱 Available Scripts
 
-### Code Splitting
+- `npm start` - Runs the app in development mode
+- `npm run build` - Builds the app for production
+- `npm test` - Launches the test runner
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## 🎨 Design Features
 
-### Analyzing the Bundle Size
+- **Modern UI/UX**: Clean, professional design optimized for career professionals
+- **Responsive Design**: Works seamlessly on all devices
+- **Interactive Elements**: Engaging animations and micro-interactions
+- **Accessibility**: Built with accessibility best practices
+- **Performance**: Optimized for fast loading and smooth interactions
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## 🚀 How It Works
 
-### Making a Progressive Web App
+1. **Sign Up & Profile**: Create your account and tell us about your career goals
+2. **AI Assessment**: Our AI analyzes your skills and creates a personalized learning path
+3. **Practice & Improve**: Use our tools to practice interviews, build resumes, and assess skills
+4. **Land Your Dream Job**: Apply with confidence using your AI-optimized materials
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+## 🤝 Contributing
 
-### Advanced Configuration
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+## 📄 License
 
-### Deployment
+This project is licensed under the MIT License.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+## 📞 Support
 
-### `npm run build` fails to minify
+For support and questions, please open an issue in the repository.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+---
+
+**Transform your career with AI-powered tools designed for success! 🚀**
