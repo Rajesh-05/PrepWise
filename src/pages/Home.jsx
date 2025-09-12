@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import '../styles/Home.css';
 
 const Home = () => {
@@ -121,6 +122,9 @@ const Home = () => {
                                 <span>Watch Demo</span>
                                 <span className="play-icon">▶</span>
                             </button>
+                            <Link to="/chat" className="btn-primary">
+                                <span>Go to Chat</span>
+                            </Link>
                         </div>
 
                         <div className="hero-stats">
