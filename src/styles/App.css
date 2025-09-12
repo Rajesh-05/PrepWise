@@ -353,3 +353,32 @@ body {
     font-size: 0.9rem;
   }
 }
+
+/* Hide native scrollbars visually but preserve scrolling interactions
+   - Keeps keyboard, wheel and touch scrolling functional.
+   - Adjust or remove if you prefer a visible thin scrollbar for discoverability.
+*/
+html,
+body {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+/* WebKit-based browsers */
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  background: transparent;
+}

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import '../styles/Chat.css';
 
 const initialMessages = [
@@ -54,16 +55,19 @@ const Chat = () => {
         ta.style.height = 'auto';
         ta.style.height = `${Math.min(200, ta.scrollHeight)}px`;
     };
+    const bubbleVariants = {
+        hidden: { opacity: 0, y: 20 },
+        visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
+    };
 
     return (
         <div className="chat-page">
-            <div className="container">
+           
                 <aside className="chat-sidebar">
                     <div className="chat-sidebar-header">
                         <h3>Conversations</h3>
                         <button className="btn btn-outline btn-small chat-new-btn">New</button>
                     </div>
-
                     <ul className="conversation-list">
                         <li className="conversation active">
                             <div className="conv-title">Interview Prep — Backend</div>
@@ -90,12 +94,14 @@ const Chat = () => {
 
                     <div className="message-list" ref={listRef}>
                         {messages.map(msg => (
-                            <div key={msg.id} className={`message ${msg.author}`}>
+                            <motion.div
+                             key={msg.id} 
+                             className={`message ${msg.author}`}>
                                 <div className="message-body">
                                     <div className="message-text">{msg.text}</div>
                                     <div className="message-time">{msg.time}</div>
                                 </div>
-                            </div>
+                            </motion.div>
                         ))}
                     </div>
 
@@ -129,7 +135,6 @@ const Chat = () => {
                         </div>
                     </form>
                 </section>
-            </div>
         </div>
     );
 };
