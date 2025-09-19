@@ -889,3 +889,30 @@
         font-size: 2rem;
     }
 }
+
+/* Ensure features are side-by-side on desktop and show more columns on very wide screens */
+@media (min-width: 1025px) {
+    .features .container {
+        max-width: 1200px;
+        /* keep consistent with page layout */
+    }
+
+    /* Force a two-column layout on common desktop sizes */
+    .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 2.5rem;
+    }
+}
+
+@media (min-width: 1400px) {
+
+    /* Allow more room and show three columns on very wide screens */
+    .features .container {
+        max-width: 1400px;
+    }
+
+    .features-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 2.5rem;
+    }
+}
