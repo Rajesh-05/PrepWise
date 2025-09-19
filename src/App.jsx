@@ -6,6 +6,8 @@ import Home from './pages/Home';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Chat from './pages/Chat';
+import ResumeEvaluator from './pages/ResumeEvaluator';
+
 import './styles/App.css';
 
 function AppContent() {
@@ -31,6 +33,19 @@ function App() {
     return (
         <Router>
             <AppContent />
+            <div className="App">
+                <Header />
+                <main className="main-content">
+                    <Routes>
+                        <Route path="/" element={<Home />} />
+                        <Route path="/login" element={<Login />} />
+                        <Route path="/signup" element={<Signup />} />
+                        <Route path="/resume-evaluator" element={<ResumeEvaluator />} />
+                    </Routes>
+                </main>
+                <Footer />
+            </div>
+
         </Router>
     );
 }
