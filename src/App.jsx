@@ -22,6 +22,7 @@ function AppContent() {
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
                     <Route path="/chat" element={<Chat />} />
+                    <Route path="/resume-evaluator" element={<ResumeEvaluator />} />
                 </Routes>
             </main>
             {location.pathname !== '/chat' && <Footer />}
@@ -33,19 +34,6 @@ function App() {
     return (
         <Router>
             <AppContent />
-            <div className="App">
-                <Header />
-                <main className="main-content">
-                    <Routes>
-                        <Route path="/" element={<Home />} />
-                        <Route path="/login" element={<Login />} />
-                        <Route path="/signup" element={<Signup />} />
-                        <Route path="/resume-evaluator" element={<ResumeEvaluator />} />
-                    </Routes>
-                </main>
-                <Footer />
-            </div>
-
         </Router>
     );
 }
