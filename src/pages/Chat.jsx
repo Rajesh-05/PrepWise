@@ -55,10 +55,7 @@ const Chat = () => {
         ta.style.height = 'auto';
         ta.style.height = `${Math.min(200, ta.scrollHeight)}px`;
     };
-    const bubbleVariants = {
-        hidden: { opacity: 0, y: 20 },
-        visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
-    };
+    
 
     return (
         <div className="chat-page">
