@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Chat from './pages/Chat';
 import ResumeEvaluator from './pages/ResumeEvaluator';
+import JobFinder from './pages/JobFinder';
 
 import './styles/App.css';
 
@@ -23,6 +24,7 @@ function AppContent() {
                     <Route path="/signup" element={<Signup />} />
                     <Route path="/chat" element={<Chat />} />
                     <Route path="/resume-evaluator" element={<ResumeEvaluator />} />
+                    <Route path="/job-finder" element={<JobFinder />} />
                 </Routes>
             </main>
             {location.pathname !== '/chat' && <Footer />}
