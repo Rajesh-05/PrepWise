@@ -25,9 +25,10 @@ function AppContent() {
                     <Route path="/chat" element={<Chat />} />
                     <Route path="/resume-evaluator" element={<ResumeEvaluator />} />
                     <Route path="/job-finder" element={<JobFinder />} />
+                    
                 </Routes>
             </main>
-            {location.pathname !== '/chat' && <Footer />}
+            {location.pathname !== '/chat' && location.pathname !== '/job-finder' && location.pathname !== '/resume-evaluator' && <Footer />}
         </div>
     );
 }
