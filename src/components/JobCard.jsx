@@ -8,7 +8,9 @@ const initialsFromCompany = (name) => {
     return (parts[0][0] + parts[1][0]).toUpperCase();
 };
 
-const JobCard = ({ job, onApply }) => {
+const JobCard = ({ job, onApply, onDetails }) => {
+    // Ensure job.skills is always an array
+    const skills = Array.isArray(job.skills) ? job.skills : [];
     return (
         <article className="job-card" aria-labelledby={`job-${job.id}-title`}>
             <div className="job-card-left">
@@ -25,8 +27,8 @@ const JobCard = ({ job, onApply }) => {
                 </div>
             </div>
             <div className="job-card-right">
-                <div className="job-skills" aria-label={`Skills: ${job.skills.join(', ')}`}>
-                    {job.skills.slice(0, 4).map((s, i) => (
+                <div className="job-skills" aria-label={`Skills: ${skills.join(', ')}`}>
+                    {skills.slice(0, 4).map((s, i) => (
                         <span key={i} className="skill-pill">{s}</span>
                     ))}
                 </div>
@@ -38,7 +40,11 @@ const JobCard = ({ job, onApply }) => {
                     >
                         Apply
                     </button>
-                    <button className="btn btn-small btn-outline btn-details" aria-label={`View details for ${job.title}`}>
+                    <button 
+                        className="btn btn-small btn-outline btn-details" 
+                        aria-label={`View details for ${job.title}`}
+                        onClick={() => onDetails(job)}
+                    >
                         Details
                     </button>
                 </div>
