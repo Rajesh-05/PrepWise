@@ -229,7 +229,6 @@ async def receive_audio(session, stop_event):
                     if response.server_content.turn_complete:
                         turn_count += 1
                         print(f"✅ Turn {turn_count} complete - evaluating response...")
-                        print("🔍 Debug: server_content attributes:", dir(response.server_content))
                         user_response = getattr(response.server_content, 'input_transcription', None)
                         feedback = "No feedback available."
                         if user_response:
