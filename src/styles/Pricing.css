@@ -1,0 +1,101 @@
+.pricing-page {
+  padding: 3rem 1rem;
+  background: #f8fafc;
+  min-height: 100vh;
+}
+.pricing-title {
+  text-align: center;
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #6366f1;
+  margin-bottom: 2.5rem;
+}
+.pricing-cards {
+  display: flex;
+  justify-content: center;
+  gap: 2.5rem;
+  flex-wrap: wrap;
+}
+.pricing-card {
+  background: #fff;
+  border-radius: 1.2rem;
+  box-shadow: 0 2px 16px rgba(99,102,241,0.08);
+  padding: 2.2rem 2rem 2rem 2rem;
+  min-width: 300px;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  border: 2px solid #e0e7ff;
+}
+.pricing-card.popular {
+  border: 2.5px solid #6366f1;
+  box-shadow: 0 4px 24px rgba(99,102,241,0.14);
+}
+.plan-header h3 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #6366f1;
+  margin-bottom: 0.5rem;
+}
+.plan-price {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #6d28d9;
+  margin-bottom: 0.3rem;
+}
+.plan-yearly {
+  font-size: 1.1rem;
+  color: #6366f1;
+  margin-bottom: 0.3rem;
+}
+.plan-highlight {
+  font-size: 0.95rem;
+  color: #10b981;
+  margin-bottom: 0.7rem;
+}
+.plan-desc {
+  font-size: 1rem;
+  color: #374151;
+  margin-bottom: 1.2rem;
+  text-align: center;
+}
+.plan-features {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 1.5rem;
+  width: 100%;
+}
+.plan-features li {
+  font-size: 0.98rem;
+  color: #6366f1;
+  margin-bottom: 0.5rem;
+  padding-left: 1.2rem;
+  position: relative;
+}
+.plan-features li:before {
+  content: '✔';
+  color: #10b981;
+  position: absolute;
+  left: 0;
+}
+.plan-btn {
+  width: 100%;
+  padding: 0.8rem;
+  background: linear-gradient(90deg, #6366f1 0%, #a78bfa 100%);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.1rem;
+  border: none;
+  border-radius: 0.7rem;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.10);
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.plan-btn:disabled {
+  background: #e0e7ff;
+  color: #6366f1;
+  cursor: not-allowed;
+}
