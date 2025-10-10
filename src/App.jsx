@@ -8,6 +8,8 @@ import Signup from './pages/Signup';
 import Chat from './pages/Chat';
 import ResumeEvaluator from './pages/ResumeEvaluator';
 import JobFinder from './pages/JobFinder';
+import InterviewPrep from './pages/InterviewPrep';
+import CompanyQuestionBank from './pages/CompanyQuestionBank';
 
 import './styles/App.css';
 
@@ -25,7 +27,8 @@ function AppContent() {
                     <Route path="/chat" element={<Chat />} />
                     <Route path="/resume-evaluator" element={<ResumeEvaluator />} />
                     <Route path="/job-finder" element={<JobFinder />} />
-                    
+                    <Route path="/interview-prep" element={<InterviewPrep />} />
+                    <Route path="/company-question-bank" element={<CompanyQuestionBank />} />
                 </Routes>
             </main>
             {location.pathname !== '/chat' && location.pathname !== '/job-finder' && location.pathname !== '/resume-evaluator' && <Footer />}
