@@ -12,10 +12,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import time
 import math
-import fitz  
-import tempfile
-import requests
-import pdfplumber
 
 app = Flask(__name__)
 CORS(app)
@@ -442,89 +438,6 @@ def run_interview_session(job_description):
     thread = threading.Thread(target=interview_thread, daemon=True)
     thread.start()
     return "Interview session started in background."
-
-def extract_pdf_text(pdf_path):
-    """Extract text from a PDF file using pdfplumber."""
-    text = ""
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-    except Exception as e:
-        logging.error(f"Error extracting PDF text: {e}")
-    return text.strip()
-
-def get_gemini_resume_improvements(resume_text):
-    prompt = f"""
-        You are an expert resume reviewer. Given the following resume, provide actionable suggestions to improve it for job applications. Respond ONLY with a JSON object:
-        {{
-        "suggestions": "Your suggestions here as a paragraph or bullet points."
-        }}
-        Resume: {resume_text}
-        """
-    data = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-
-    model1 = "gemini-2.5-flash"
-    response = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
-        json=data
-    )
-    try:
-        result = response.json()
-        text = result["candidates"][0]["content"]["parts"][0]["text"]
-        if text.strip().startswith('```'):
-            text = text.strip().split('```')[-2] if '```' in text.strip() else text.strip()
-            if text.strip().startswith('json'):
-                text = text.strip()[4:].strip()
-        import json
-        return json.loads(text)
-    except Exception as e:
-        return {"error": str(e)}
-    
-def get_gemini_ats_score(resume_text, job_description):
-    prompt = f"""
-    You are an ATS (Applicant Tracking System) resume evaluator. 
-    Given the following resume and job description, return a JSON object with:
-    - match_score (0-100 integer)
-    - summary (a detailed 2–3 line summary describing how well the resume matches the job, key strengths, and improvement areas)
-    - missing_keywords (list of important keywords or skills from the job description that are not found in the resume)
-
-    Resume:
-    {resume_text}
-
-    Job Description:
-    {job_description}
-
-    Respond ONLY with the JSON object.
-    """
-
-    data = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-
-    model1 = "gemini-2.5-flash"
-    response = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
-        json=data
-    )
-    try:
-        result = response.json()
-        text = result["candidates"][0]["content"]["parts"][0]["text"]
-        if text.strip().startswith('```'):
-            text = text.strip().split('```')[-2] if '```' in text.strip() else text.strip()
-            if text.strip().startswith('json'):
-                text = text.strip()[4:].strip()
-        import json
-        return json.loads(text)
-    except Exception as e:
-        print("Gemini API raw response:", response.text)
-        print("Error parsing Gemini API response:", str(e))
-        return {"error": str(e), "raw_response": response.text}
-
 @app.route('/stop-interview', methods=['POST'])
 def stop_interview_route():
     global interview_stop_event, interview_thread_running
@@ -560,66 +473,6 @@ def interview_route():
     if result is None:
         return jsonify({"error": "Interview session already running. Please wait for it to finish."}), 409
     return jsonify({"result": result})
-
-@app.route('/improve-resume', methods=['POST'])
-def improve_resume():
-    if 'file' not in request.files:
-        return jsonify({"error": "Missing resume file"}), 400
-    file = request.files['file']
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        file.save(tmp.name)
-        tmp_path = tmp.name
-    try:
-        resume_text = extract_pdf_text(tmp_path)
-        result = get_gemini_resume_improvements(resume_text)
-    except Exception as e:
-        result = {"error": str(e)}
-    finally:
-        os.remove(tmp_path)
-    if "error" in result:
-        return jsonify(result), 500
-    return jsonify(result)
-
-@app.route('/evaluate-resume', methods=['POST'])
-def evaluate_resume():
-    if 'file' not in request.files:
-        return jsonify({"error": "Missing resume file"}), 400
-    file = request.files['file']
-    jd_text = None
-    # Accept job_description as either text or file
-    if 'job_description' in request.form:
-        jd_text = request.form['job_description']
-    elif 'job_description' in request.files:
-        jd_file = request.files['job_description']
-        jd_filename = jd_file.filename.lower()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{jd_filename.split('.')[-1]}") as jd_tmp:
-            jd_file.save(jd_tmp.name)
-            jd_tmp_path = jd_tmp.name
-        try:
-            if jd_filename.endswith('.pdf'):
-                jd_text = extract_pdf_text(jd_tmp_path)
-            elif jd_filename.endswith('.docx') or jd_filename.endswith('.doc'):
-                jd_text = None  # DOC/DOCX not supported without extract_docx_text
-            else:
-                jd_text = None
-        finally:
-            if os.path.exists(jd_tmp_path):
-                os.remove(jd_tmp_path)
-    if not jd_text:
-        return jsonify({"error": "Missing or unsupported job description"}), 400
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        file.save(tmp.name)
-        tmp_path = tmp.name
-    try:
-        resume_text = extract_pdf_text(tmp_path)
-        result = get_gemini_ats_score(resume_text, jd_text)
-    except Exception as e:
-        result = {"error": str(e)}
-    finally:
-        os.remove(tmp_path)
-    if "error" in result:
-        return jsonify(result), 500
-    return jsonify(result)
 
 if __name__ == "__main__":
     app.run(debug=True)
