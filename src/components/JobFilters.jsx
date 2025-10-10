@@ -1,7 +1,7 @@
 import React from 'react';
 import '../styles/JobFinder.css';
 
-const JobFilters = ({ filters, onChange, onReset }) => {
+const JobFilters = ({ filters, onChange, onReset, onRefresh }) => {
     const update = (patch) => onChange({ ...filters, ...patch });
 
     return (
@@ -84,6 +84,10 @@ const JobFilters = ({ filters, onChange, onReset }) => {
                     value={filters.skills}
                     onChange={e => update({ skills: e.target.value })}
                 />
+            </div>
+
+            <div className="refresh-container">
+                <button className="refresh-btn" onClick={onRefresh} title="Refresh jobs">🔄 Refresh</button>
             </div>
         </aside>
     );
