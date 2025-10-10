@@ -202,15 +202,6 @@ config = {
 }
 
 
-# Load .env file
-load_dotenv()
-
-# Use environment variable for API key - NO HARDCODED KEY
-API_KEY = os.getenv("GEMINI_API_KEY")
-if not API_KEY:
-    raise ValueError("GEMINI_API_KEY not found in environment variables")
-client = genai.Client(api_key=API_KEY)
-
 # Audio queues for threading with larger max size
 audio_input_queue = Queue(maxsize=100)
 audio_output_queue = Queue(maxsize=200)
