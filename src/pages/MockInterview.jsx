@@ -10,7 +10,6 @@ const MockInterview = () => {
     const [interviewActive, setInterviewActive] = useState(false);
     const [elapsed, setElapsed] = useState(0);
     const timerRef = useRef(null);
-    const [showHelp, setShowHelp] = useState(false);
 
     const handleStopInterview = async () => {
         try {
@@ -87,14 +86,6 @@ const MockInterview = () => {
         };
     }, []);
 
-    const formatTime = (secs) => {
-        const h = Math.floor(secs / 3600);
-        const m = Math.floor((secs % 3600) / 60);
-        const s = secs % 60;
-        return [h, m, s]
-            .map(v => v < 10 ? '0' + v : v)
-            .join(':');
-    };
 
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
@@ -110,11 +101,18 @@ const MockInterview = () => {
         }
     };
 
+    // Format elapsed seconds to MM:SS for a small timer display
+    const formatElapsed = (seconds) => {
+        const mm = Math.floor(seconds / 60).toString().padStart(2, '0');
+        const ss = (seconds % 60).toString().padStart(2, '0');
+        return `${mm}:${ss}`;
+    };
+
     return (
         <div
             className="mock-interview-page"
             style={{
-                height: '83vh', // Changed from minHeight to height to fit viewport
+                height: '89vh', // Changed from minHeight to height to fit viewport
                 display: 'flex',
                 flexDirection: 'row',
                 alignItems: 'stretch',
@@ -220,11 +218,7 @@ const MockInterview = () => {
                             aria-busy={loading}
                             style={{ flex: 1, background: '#23408e', color: '#fff', padding: '0.8rem', borderRadius: 8, fontWeight: 600, fontSize: '1.1rem', border: 'none', boxShadow: '0 2px 8px rgba(35,64,142,0.08)', cursor: loading || !jd.trim() || interviewActive ? 'not-allowed' : 'pointer', opacity: loading || !jd.trim() || interviewActive ? 0.6 : 1 }}
                         >
-                            {loading ? (
-                                <span className="loading-spinner" aria-label="Loading"></span>
-                            ) : (
-                                <span><span role="img" aria-label="play">▶️</span> Start Interview</span>
-                            )}
+                            <span><span role="img" aria-label="play">▶️</span> Start Interview</span>
                         </button>
                         <button
                             className="stop-button enhanced-btn"
@@ -236,6 +230,13 @@ const MockInterview = () => {
                             <span role="img" aria-label="stop">⏹️</span> Stop Interview
                         </button>
                     </div>
+                    {/* show a small elapsed timer while the interview is active */}
+                    {interviewActive && (
+                        <div className="elapsed-timer" style={{ marginTop: '0.6rem', color: '#23408e', fontWeight: 600 }}>
+                            <span role="img" aria-label="timer" style={{ marginRight: '0.4rem' }}>⏱️</span>
+                            Elapsed: {formatElapsed(elapsed)}
+                        </div>
+                    )}
                     {error && (
                         <div className="error-message" style={{ color: '#d32f2f', background: '#fff3f3', borderRadius: 8, padding: '0.7rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.7rem' }}>
                             <span>{error}</span>
