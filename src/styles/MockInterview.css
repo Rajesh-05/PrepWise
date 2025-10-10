@@ -47,3 +47,16 @@
 .mock-interview button:not(:disabled):hover {
     background-color: #0056b3;
 }
+
+/* Compact loading spinner used in MockInterview.jsx buttons */
+/* spinner removed - using normal button text instead */
+
+/* Ensure buttons don't shift size when content changes (keep padding consistent) */
+.mock-interview .enhanced-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+    /* prevent wrapping which causes height changes */
+}
