@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import sounddevice as sd
 import numpy as np
 from google import genai
@@ -12,6 +13,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import time
 import math
+import fitz  
+import tempfile
+import requests
+import pdfplumber
 
 app = Flask(__name__)
 CORS(app)
@@ -91,21 +96,6 @@ def get_jobs():
 	except Exception as e:
 		return jsonify({"error": str(e), "jobs": []})
   
-model = "gemini-live-2.5-flash-preview"
-
-config = {
-    "response_modalities": ["AUDIO"],
-    "speech_config": types.SpeechConfig(
-        voice_config=types.VoiceConfig(
-            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                voice_name="LEDA"
-            )
-        )
-    ),
-   "system_instruction": "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. Keep the tone professional, constructive, and supportive."
-}
-
-
 # Load .env file
 load_dotenv()
 
@@ -114,80 +104,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("GEMINI_API_KEY not found in environment variables")
 client = genai.Client(api_key=API_KEY)
-
-# Audio queues for threading with larger max size
-audio_input_queue = Queue(maxsize=100)
-audio_output_queue = Queue(maxsize=200)
-
-def audio_input_callback(indata, frames, time, status):
-    """Callback for capturing microphone input"""
-    if status:
-        print(f"Input status: {status}")
-    try:
-        audio_input_queue.put(indata.copy(), block=False)
-    except:
-        pass  # Queue full, skip this chunk
-
-# Audio buffer for continuous playback
-audio_buffer = np.array([], dtype=np.int16)
-buffer_lock = threading.Lock()
-
-def audio_output_callback(outdata, frames, time, status):
-    """Callback for playing audio output"""
-    global audio_buffer
-    if status:
-        print(f"Output status: {status}")
-    with buffer_lock:
-        # Fill buffer from queue
-        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
-            try:
-                data = audio_output_queue.get_nowait()
-                audio_buffer = np.append(audio_buffer, data)
-            except:
-                break
-        # Play from buffer
-        if len(audio_buffer) >= frames:
-            outdata[:, 0] = audio_buffer[:frames]
-            audio_buffer = audio_buffer[frames:]
-        else:
-            # Not enough data, pad with silence
-            if len(audio_buffer) > 0:
-                outdata[:len(audio_buffer), 0] = audio_buffer
-                outdata[len(audio_buffer):, 0] = 0
-                audio_buffer = np.array([], dtype=np.int16)
-            else:
-                outdata.fill(0)
-
-async def send_audio(session, stop_event):
-    """Send audio from microphone to Gemini"""
-    print("🎤 Listening... (Press Ctrl+C to stop)")
-    try:
-        while not stop_event.is_set():
-            try:
-                if stop_event.is_set():
-                    break
-                if not audio_input_queue.empty():
-                    audio_chunk = audio_input_queue.get(timeout=0.01)
-                    await session.send_realtime_input(
-                        audio=types.Blob(
-                            data=audio_chunk.tobytes(),
-                            mime_type="audio/pcm;rate=16000"
-                        )
-                    )
-                else:
-                    await asyncio.sleep(0.01)
-            except Exception as e:
-                if stop_event.is_set():
-                    break
-                print(f"Error in send loop: {e}")
-                await asyncio.sleep(0.1)
-    except asyncio.CancelledError:
-        print("Send task cancelled")
-    except Exception as e:
-        print(f"Fatal error sending audio: {e}")
-        import traceback
-        traceback.print_exc()
-
+model = "gemini-live-2.5-flash-preview"
 config = {
     "response_modalities": ["AUDIO"],
     "speech_config": types.SpeechConfig(
@@ -198,8 +115,41 @@ config = {
         )
     ),
    "system_instruction": "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. Keep the tone professional, constructive, and supportive."
-
 }
+
+# Keep the base system instruction separate so we don't accidentally append it multiple times
+BASE_SYSTEM_INSTRUCTION = config.get("system_instruction", "You are a professional mock interviewer.")
+
+# Audio buffer for continuous playback
+audio_buffer = np.array([], dtype=np.int16)
+buffer_lock = threading.Lock()
+
+def audio_output_callback(outdata, frames, time, status):
+    """Callback for playing audio output"""
+    global audio_buffer
+    if status:
+        print(f"Output status: {status}")
+    with buffer_lock:
+        # Fill buffer from queue
+        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
+            try:
+                data = audio_output_queue.get_nowait()
+                audio_buffer = np.append(audio_buffer, data)
+            except:
+                break
+        # Play from buffer
+        if len(audio_buffer) >= frames:
+            outdata[:, 0] = audio_buffer[:frames]
+            audio_buffer = audio_buffer[frames:]
+        else:
+            # Not enough data, pad with silence
+            if len(audio_buffer) > 0:
+                outdata[:len(audio_buffer), 0] = audio_buffer
+                outdata[len(audio_buffer):, 0] = 0
+                audio_buffer = np.array([], dtype=np.int16)
+            else:
+                outdata.fill(0)
+
 
 
 # Audio queues for threading with larger max size
@@ -215,38 +165,6 @@ def audio_input_callback(indata, frames, time, status):
     except:
         pass  # Queue full, skip this chunk
 
-# Audio buffer for continuous playback
-audio_buffer = np.array([], dtype=np.int16)
-buffer_lock = threading.Lock()
-
-def audio_output_callback(outdata, frames, time, status):
-    """Callback for playing audio output"""
-    global audio_buffer
-    
-    if status:
-        print(f"Output status: {status}")
-    
-    with buffer_lock:
-        # Fill buffer from queue
-        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
-            try:
-                data = audio_output_queue.get_nowait()
-                audio_buffer = np.append(audio_buffer, data)
-            except:
-                break
-        
-        # Play from buffer
-        if len(audio_buffer) >= frames:
-            outdata[:, 0] = audio_buffer[:frames]
-            audio_buffer = audio_buffer[frames:]
-        else:
-            # Not enough data, pad with silence
-            if len(audio_buffer) > 0:
-                outdata[:len(audio_buffer), 0] = audio_buffer
-                outdata[len(audio_buffer):, 0] = 0
-                audio_buffer = np.array([], dtype=np.int16)
-            else:
-                outdata.fill(0)
 
 async def send_audio(session, stop_event):
     """Send audio from microphone to Gemini"""
@@ -366,11 +284,11 @@ interview_stop_event = None
 
 def run_interview_session(job_description):
     global interview_thread_running, interview_stop_event
-    config["system_instruction"] = (
-        "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. "
-        "Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. "
-        "Keep the tone professional, constructive, and supportive. Use the following Job Description (JD) as context: \n"
-        f"{job_description}"
+    # Create a session-specific config to avoid mutating the global config and accidentally
+    # appending the system instruction multiple times if sessions are started repeatedly.
+    session_config = dict(config)
+    session_config["system_instruction"] = (
+        f"{BASE_SYSTEM_INSTRUCTION} Use the following Job Description (JD) as context:\n{job_description}"
     )
 
     def interview_thread():
@@ -382,7 +300,7 @@ def run_interview_session(job_description):
             global interview_stop_event, interview_thread_running
             nonlocal input_stream, output_stream
             try:
-                async with client.aio.live.connect(model=model, config=config) as session:
+                async with client.aio.live.connect(model=model, config=session_config) as session:
                     print("✅ Connected to Gemini Live API")
                     input_stream = sd.InputStream(
                         channels=1,
@@ -438,6 +356,89 @@ def run_interview_session(job_description):
     thread = threading.Thread(target=interview_thread, daemon=True)
     thread.start()
     return "Interview session started in background."
+
+def extract_pdf_text(pdf_path):
+    """Extract text from a PDF file using pdfplumber."""
+    text = ""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+    except Exception as e:
+        logging.error(f"Error extracting PDF text: {e}")
+    return text.strip()
+
+def get_gemini_resume_improvements(resume_text):
+    prompt = f"""
+        You are an expert resume reviewer. Given the following resume, provide actionable suggestions to improve it for job applications. Respond ONLY with a JSON object:
+        {{
+        "suggestions": "Your suggestions here as a paragraph or bullet points."
+        }}
+        Resume: {resume_text}
+        """
+    data = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+
+    model1 = "gemini-2.5-flash"
+    response = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
+        json=data
+    )
+    try:
+        result = response.json()
+        text = result["candidates"][0]["content"]["parts"][0]["text"]
+        if text.strip().startswith('```'):
+            text = text.strip().split('```')[-2] if '```' in text.strip() else text.strip()
+            if text.strip().startswith('json'):
+                text = text.strip()[4:].strip()
+        import json
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e)}
+    
+def get_gemini_ats_score(resume_text, job_description):
+    prompt = f"""
+    You are an ATS (Applicant Tracking System) resume evaluator. 
+    Given the following resume and job description, return a JSON object with:
+    - match_score (0-100 integer)
+    - summary (a detailed 2–3 line summary describing how well the resume matches the job, key strengths, and improvement areas)
+    - missing_keywords (list of important keywords or skills from the job description that are not found in the resume)
+
+    Resume:
+    {resume_text}
+
+    Job Description:
+    {job_description}
+
+    Respond ONLY with the JSON object.
+    """
+
+    data = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+
+    model1 = "gemini-2.5-flash"
+    response = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
+        json=data
+    )
+    try:
+        result = response.json()
+        text = result["candidates"][0]["content"]["parts"][0]["text"]
+        if text.strip().startswith('```'):
+            text = text.strip().split('```')[-2] if '```' in text.strip() else text.strip()
+            if text.strip().startswith('json'):
+                text = text.strip()[4:].strip()
+        import json
+        return json.loads(text)
+    except Exception as e:
+        print("Gemini API raw response:", response.text)
+        print("Error parsing Gemini API response:", str(e))
+        return {"error": str(e), "raw_response": response.text}
+
 @app.route('/stop-interview', methods=['POST'])
 def stop_interview_route():
     global interview_stop_event, interview_thread_running
@@ -473,6 +474,66 @@ def interview_route():
     if result is None:
         return jsonify({"error": "Interview session already running. Please wait for it to finish."}), 409
     return jsonify({"result": result})
+
+@app.route('/improve-resume', methods=['POST'])
+def improve_resume():
+    if 'file' not in request.files:
+        return jsonify({"error": "Missing resume file"}), 400
+    file = request.files['file']
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        file.save(tmp.name)
+        tmp_path = tmp.name
+    try:
+        resume_text = extract_pdf_text(tmp_path)
+        result = get_gemini_resume_improvements(resume_text)
+    except Exception as e:
+        result = {"error": str(e)}
+    finally:
+        os.remove(tmp_path)
+    if "error" in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+@app.route('/evaluate-resume', methods=['POST'])
+def evaluate_resume():
+    if 'file' not in request.files:
+        return jsonify({"error": "Missing resume file"}), 400
+    file = request.files['file']
+    jd_text = None
+    # Accept job_description as either text or file
+    if 'job_description' in request.form:
+        jd_text = request.form['job_description']
+    elif 'job_description' in request.files:
+        jd_file = request.files['job_description']
+        jd_filename = jd_file.filename.lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{jd_filename.split('.')[-1]}") as jd_tmp:
+            jd_file.save(jd_tmp.name)
+            jd_tmp_path = jd_tmp.name
+        try:
+            if jd_filename.endswith('.pdf'):
+                jd_text = extract_pdf_text(jd_tmp_path)
+            elif jd_filename.endswith('.docx') or jd_filename.endswith('.doc'):
+                jd_text = None  # DOC/DOCX not supported without extract_docx_text
+            else:
+                jd_text = None
+        finally:
+            if os.path.exists(jd_tmp_path):
+                os.remove(jd_tmp_path)
+    if not jd_text:
+        return jsonify({"error": "Missing or unsupported job description"}), 400
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        file.save(tmp.name)
+        tmp_path = tmp.name
+    try:
+        resume_text = extract_pdf_text(tmp_path)
+        result = get_gemini_ats_score(resume_text, jd_text)
+    except Exception as e:
+        result = {"error": str(e)}
+    finally:
+        os.remove(tmp_path)
+    if "error" in result:
+        return jsonify(result), 500
+    return jsonify(result)
 
 if __name__ == "__main__":
     app.run(debug=True)
