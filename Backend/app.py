@@ -385,11 +385,31 @@ def get_gemini_resume_improvements(resume_text):
     model1 = "gemini-2.5-flash"
     response = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
-        json=data
+        json=data,
+        timeout=30
     )
+
+    # Defensive parsing: check HTTP status and expected keys, return helpful debug info on failure
     try:
-        result = response.json()
-        text = result["candidates"][0]["content"]["parts"][0]["text"]
+        resp_json = response.json()
+    except Exception:
+        return {"error": "Invalid JSON response from Gemini API", "raw_response": response.text}
+
+    # If API returned an error structure or missing expected keys, return that for debugging
+    if not response.ok:
+        return {"error": f"Gemini API returned status {response.status_code}", "details": resp_json}
+
+    # Try to extract text candidate safely
+    try:
+        candidates = resp_json.get("candidates")
+        if not candidates or not isinstance(candidates, list):
+            return {"error": "Gemini response missing 'candidates' field", "raw": resp_json}
+        text = candidates[0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        return {"error": f"Failed to extract text from Gemini response: {e}", "raw": resp_json}
+
+    # Clean markdown fences if present
+    try:
         if text.strip().startswith('```'):
             text = text.strip().split('```')[-2] if '```' in text.strip() else text.strip()
             if text.strip().startswith('json'):
@@ -397,7 +417,7 @@ def get_gemini_resume_improvements(resume_text):
         import json
         return json.loads(text)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"Failed to parse JSON suggestions from Gemini text: {e}", "extracted_text": text}
     
 def get_gemini_ats_score(resume_text, job_description):
     prompt = f"""
@@ -423,11 +443,33 @@ def get_gemini_ats_score(resume_text, job_description):
     model1 = "gemini-2.5-flash"
     response = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
-        json=data
+        json=data,
+        timeout=30
     )
+
     try:
-        result = response.json()
-        text = result["candidates"][0]["content"]["parts"][0]["text"]
+        resp_json = response.json()
+    except Exception:
+        print("Gemini API raw response:", response.text)
+        return {"error": "Invalid JSON response from Gemini API", "raw_response": response.text}
+
+    if not response.ok:
+        print("Gemini API returned non-200:", response.status_code, resp_json)
+        return {"error": f"Gemini API returned status {response.status_code}", "details": resp_json}
+
+    # Defensive extraction
+    try:
+        candidates = resp_json.get("candidates")
+        if not candidates or not isinstance(candidates, list):
+            print("Gemini response missing 'candidates':", resp_json)
+            return {"error": "Gemini response missing 'candidates' field", "raw": resp_json}
+        text = candidates[0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        print("Error extracting candidate text:", e)
+        return {"error": f"Error extracting candidate text: {e}", "raw": resp_json}
+
+    # Clean and parse JSON from text
+    try:
         if text.strip().startswith('```'):
             text = text.strip().split('```')[-2] if '```' in text.strip() else text.strip()
             if text.strip().startswith('json'):
@@ -435,9 +477,8 @@ def get_gemini_ats_score(resume_text, job_description):
         import json
         return json.loads(text)
     except Exception as e:
-        print("Gemini API raw response:", response.text)
         print("Error parsing Gemini API response:", str(e))
-        return {"error": str(e), "raw_response": response.text}
+        return {"error": f"Error parsing Gemini API response: {e}", "extracted_text": text}
 
 @app.route('/stop-interview', methods=['POST'])
 def stop_interview_route():
