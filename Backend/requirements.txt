@@ -1,0 +1,11 @@
+flask
+flask-cors
+python-dotenv
+numpy
+sounddevice
+google-genai
+requests
+pdfplumber
+PyMuPDF
+pandas
+jobspy
