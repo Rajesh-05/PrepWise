@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import sounddevice as sd
 import numpy as np
 from google import genai
@@ -95,21 +96,6 @@ def get_jobs():
 	except Exception as e:
 		return jsonify({"error": str(e), "jobs": []})
   
-model = "gemini-live-2.5-flash-preview"
-
-config = {
-    "response_modalities": ["AUDIO"],
-    "speech_config": types.SpeechConfig(
-        voice_config=types.VoiceConfig(
-            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                voice_name="LEDA"
-            )
-        )
-    ),
-   "system_instruction": "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. Keep the tone professional, constructive, and supportive."
-}
-
-
 # Load .env file
 load_dotenv()
 
@@ -118,80 +104,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("GEMINI_API_KEY not found in environment variables")
 client = genai.Client(api_key=API_KEY)
-
-# Audio queues for threading with larger max size
-audio_input_queue = Queue(maxsize=100)
-audio_output_queue = Queue(maxsize=200)
-
-def audio_input_callback(indata, frames, time, status):
-    """Callback for capturing microphone input"""
-    if status:
-        print(f"Input status: {status}")
-    try:
-        audio_input_queue.put(indata.copy(), block=False)
-    except:
-        pass  # Queue full, skip this chunk
-
-# Audio buffer for continuous playback
-audio_buffer = np.array([], dtype=np.int16)
-buffer_lock = threading.Lock()
-
-def audio_output_callback(outdata, frames, time, status):
-    """Callback for playing audio output"""
-    global audio_buffer
-    if status:
-        print(f"Output status: {status}")
-    with buffer_lock:
-        # Fill buffer from queue
-        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
-            try:
-                data = audio_output_queue.get_nowait()
-                audio_buffer = np.append(audio_buffer, data)
-            except:
-                break
-        # Play from buffer
-        if len(audio_buffer) >= frames:
-            outdata[:, 0] = audio_buffer[:frames]
-            audio_buffer = audio_buffer[frames:]
-        else:
-            # Not enough data, pad with silence
-            if len(audio_buffer) > 0:
-                outdata[:len(audio_buffer), 0] = audio_buffer
-                outdata[len(audio_buffer):, 0] = 0
-                audio_buffer = np.array([], dtype=np.int16)
-            else:
-                outdata.fill(0)
-
-async def send_audio(session, stop_event):
-    """Send audio from microphone to Gemini"""
-    print("🎤 Listening... (Press Ctrl+C to stop)")
-    try:
-        while not stop_event.is_set():
-            try:
-                if stop_event.is_set():
-                    break
-                if not audio_input_queue.empty():
-                    audio_chunk = audio_input_queue.get(timeout=0.01)
-                    await session.send_realtime_input(
-                        audio=types.Blob(
-                            data=audio_chunk.tobytes(),
-                            mime_type="audio/pcm;rate=16000"
-                        )
-                    )
-                else:
-                    await asyncio.sleep(0.01)
-            except Exception as e:
-                if stop_event.is_set():
-                    break
-                print(f"Error in send loop: {e}")
-                await asyncio.sleep(0.1)
-    except asyncio.CancelledError:
-        print("Send task cancelled")
-    except Exception as e:
-        print(f"Fatal error sending audio: {e}")
-        import traceback
-        traceback.print_exc()
-
+model = "gemini-live-2.5-flash-preview"
 config = {
     "response_modalities": ["AUDIO"],
     "speech_config": types.SpeechConfig(
@@ -202,8 +115,41 @@ config = {
         )
     ),
    "system_instruction": "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. Keep the tone professional, constructive, and supportive."
-
 }
+
+# Keep the base system instruction separate so we don't accidentally append it multiple times
+BASE_SYSTEM_INSTRUCTION = config.get("system_instruction", "You are a professional mock interviewer.")
+
+# Audio buffer for continuous playback
+audio_buffer = np.array([], dtype=np.int16)
+buffer_lock = threading.Lock()
+
+def audio_output_callback(outdata, frames, time, status):
+    """Callback for playing audio output"""
+    global audio_buffer
+    if status:
+        print(f"Output status: {status}")
+    with buffer_lock:
+        # Fill buffer from queue
+        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
+            try:
+                data = audio_output_queue.get_nowait()
+                audio_buffer = np.append(audio_buffer, data)
+            except:
+                break
+        # Play from buffer
+        if len(audio_buffer) >= frames:
+            outdata[:, 0] = audio_buffer[:frames]
+            audio_buffer = audio_buffer[frames:]
+        else:
+            # Not enough data, pad with silence
+            if len(audio_buffer) > 0:
+                outdata[:len(audio_buffer), 0] = audio_buffer
+                outdata[len(audio_buffer):, 0] = 0
+                audio_buffer = np.array([], dtype=np.int16)
+            else:
+                outdata.fill(0)
+
 
 
 # Audio queues for threading with larger max size
@@ -219,38 +165,6 @@ def audio_input_callback(indata, frames, time, status):
     except:
         pass  # Queue full, skip this chunk
 
-# Audio buffer for continuous playback
-audio_buffer = np.array([], dtype=np.int16)
-buffer_lock = threading.Lock()
-
-def audio_output_callback(outdata, frames, time, status):
-    """Callback for playing audio output"""
-    global audio_buffer
-    
-    if status:
-        print(f"Output status: {status}")
-    
-    with buffer_lock:
-        # Fill buffer from queue
-        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
-            try:
-                data = audio_output_queue.get_nowait()
-                audio_buffer = np.append(audio_buffer, data)
-            except:
-                break
-        
-        # Play from buffer
-        if len(audio_buffer) >= frames:
-            outdata[:, 0] = audio_buffer[:frames]
-            audio_buffer = audio_buffer[frames:]
-        else:
-            # Not enough data, pad with silence
-            if len(audio_buffer) > 0:
-                outdata[:len(audio_buffer), 0] = audio_buffer
-                outdata[len(audio_buffer):, 0] = 0
-                audio_buffer = np.array([], dtype=np.int16)
-            else:
-                outdata.fill(0)
 
 async def send_audio(session, stop_event):
     """Send audio from microphone to Gemini"""
@@ -370,11 +284,11 @@ interview_stop_event = None
 
 def run_interview_session(job_description):
     global interview_thread_running, interview_stop_event
-    config["system_instruction"] = (
-        "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. "
-        "Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. "
-        "Keep the tone professional, constructive, and supportive. Use the following Job Description (JD) as context: \n"
-        f"{job_description}"
+    # Create a session-specific config to avoid mutating the global config and accidentally
+    # appending the system instruction multiple times if sessions are started repeatedly.
+    session_config = dict(config)
+    session_config["system_instruction"] = (
+        f"{BASE_SYSTEM_INSTRUCTION} Use the following Job Description (JD) as context:\n{job_description}"
     )
 
     def interview_thread():
@@ -386,7 +300,7 @@ def run_interview_session(job_description):
             global interview_stop_event, interview_thread_running
             nonlocal input_stream, output_stream
             try:
-                async with client.aio.live.connect(model=model, config=config) as session:
+                async with client.aio.live.connect(model=model, config=session_config) as session:
                     print("✅ Connected to Gemini Live API")
                     input_stream = sd.InputStream(
                         channels=1,
