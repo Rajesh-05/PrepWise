@@ -349,7 +349,11 @@ const ResumeEvaluator = () => {
                         {improveResult && (
                             <div className="eval-result">
                                 <h3>Resume Suggestions</h3>
-                                <ReactMarkdown>{improveResult.suggestions}</ReactMarkdown>
+                                <ReactMarkdown>{
+                                    Array.isArray(improveResult.suggestions)
+                                        ? improveResult.suggestions.map(s => `- ${s}`).join('\n')
+                                        : improveResult.suggestions
+                                }</ReactMarkdown>
                             </div>
                         )}
                     </>
