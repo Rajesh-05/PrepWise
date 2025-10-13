@@ -576,5 +576,85 @@ def evaluate_resume():
         return jsonify(result), 500
     return jsonify(result)
 
+@app.route('/generate-questions', methods=['POST'])
+def generate_questions():
+    data = request.get_json()
+    company = data.get('company_name')
+    role = data.get('role')
+    domain = data.get('domain')
+    experience = data.get('experience_level')
+    qtype = data.get('question_type')
+    difficulty = data.get('difficulty')
+    num_q = data.get('num_questions', 15)
+
+    if not (company and role and domain and experience and qtype and difficulty):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    prompt = f"""
+    You are an expert interviewer. Generate {num_q} unique interview questions.
+
+    Company: {company}
+    Role: {role}
+    Domain: {domain}
+    Experience Level: {experience}
+    Question Type: {qtype}
+    Difficulty: {difficulty}
+
+    For each question, return a JSON object with:
+    - id: a unique number
+    - question: the actual question text
+    - answer: a clear and concise correct answer
+    - explanation: a short explanation or reasoning behind the answer
+
+    Return ONLY a valid JSON array like:
+    [
+      {{
+        "id": 1,
+        "question": "What is React?",
+        "answer": "A JavaScript library for building user interfaces.",
+        "explanation": "React allows building reusable UI components efficiently."
+      }}
+    ]
+    """
+
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    model_name = "gemini-2.5-flash"
+    response = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}",
+        json=data,
+        timeout=60
+    )
+
+    try:
+        resp_json = response.json()
+        candidates = resp_json.get("candidates", [])
+        text = candidates[0]["content"]["parts"][0]["text"]
+
+        # Clean Gemini's markdown fences and control characters
+        import re
+        text = text.strip()
+        if text.startswith('```'):
+            # Remove markdown fences
+            text = re.sub(r'^```[a-zA-Z]*', '', text)
+            text = text.replace('```', '').strip()
+        # Remove any control characters
+        text = re.sub(r'[\x00-\x1F]+', '', text)
+        # Log raw text for debugging
+        print('Gemini raw response:', repr(text))
+        import json
+        questions_list = json.loads(text)
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse Gemini response: {e}", "raw": text if 'text' in locals() else response.text}), 500
+
+    return jsonify({
+        "company": company,
+        "role": role,
+        "domain": domain,
+        "experience_level": experience,
+        "question_type": qtype,
+        "difficulty": difficulty,
+        "questions": questions_list
+    })
+
 if __name__ == "__main__":
     app.run(debug=True)

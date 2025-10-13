@@ -17,7 +17,6 @@ const JobDetails = ({ job, onClose }) => {
             if (data.glassdoor_link) {
                 window.open(data.glassdoor_link, '_blank');
             } else {
-                alert('No Glassdoor link found. Redirecting to fallback link.');
                 window.open(`https://www.glassdoor.com/Reviews/company-reviews.htm?keyword=${encodeURIComponent(companyName)}`, '_blank');
             }
         } catch (error) {
@@ -28,14 +27,17 @@ const JobDetails = ({ job, onClose }) => {
 
     const formatDescription = (description) => {
         if (!description) return 'No description available.';
-        return description
-            .replace(/\*\*(.*?)\*\*/g, '$1') // Remove <strong> tags and keep the text
-            .replace(/<br\s*\/?>/g, '\n') // Replace <br> tags with newlines
-            .replace(/<b>(.*?)<\/b>/g, '$1') // Remove <b> tags
-            .replace(/[\/\\\*]/g, ' ') // Replace /, \, and * with a blank space
+        // Normalize common HTML/markdown residues, then split into paragraphs
+        const cleaned = description
+            .replace(/\*\*(.*?)\*\*/g, '$1') // remove bold markdown markers
+            .replace(/<br\s*\/?>(\s*)/gi, '\n') // replace <br> with newline
+            .replace(/<b>(.*?)<\/b>/gi, '$1') // strip <b> tags
+            .replace(/[\\/*]+/g, ' '); // collapse slashes and asterisks into spaces
+
+        return cleaned
             .split('\n')
             .map((line, index) => (
-                <p key={index} dangerouslySetInnerHTML={{ __html: line }}></p>
+                <p key={index} dangerouslySetInnerHTML={{ __html: line }} />
             ));
     };
 

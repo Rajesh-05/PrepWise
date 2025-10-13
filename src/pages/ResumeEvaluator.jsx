@@ -97,6 +97,8 @@ const ResumeEvaluator = () => {
     // Close toast notification
     const closeToast = () => {
         setToastVisible(false);
+        // Clear toast text as well (prevents unused setter ESLint warning)
+        setToastText('');
     };
     const [activeTab, setActiveTab] = useState('ats');
     const [atsResumeFile, setAtsResumeFile] = useState(null);

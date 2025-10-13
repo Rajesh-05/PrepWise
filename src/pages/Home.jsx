@@ -184,9 +184,17 @@ const Home = () => {
                     </div>
 
                     <div className="features-grid">
-                        {features.map(feature => (
-                            <Link key={feature.id} to={feature.route || '#'} className="feature-link" style={{ textDecoration: 'none' }}>
-                                <div className="feature-card" style={{ '--card-color': feature.color, '--card-gradient': feature.gradient }}>
+                        {features.map(feature => {
+                            let link = null;
+                            if (feature.name === 'Company Question Bank') link = '/question-bank';
+                            else if (feature.name === 'Job Matching') link = '/job-finder';
+                            else if (feature.name === 'Mock Interviews') link = '/mock-interview';
+
+                            return (
+                                <Link key={feature.id} to={link || feature.route || '#'} className="feature-link" style={{ textDecoration: 'none' }}>
+                                    <div className="feature-card" style={{ '--card-color': feature.color, '--card-gradient': feature.gradient }}>
+
+
                                     <div className="feature-header">
                                         <div className="feature-icon-wrapper">
                                             <div className="feature-icon">{feature.icon}</div>
