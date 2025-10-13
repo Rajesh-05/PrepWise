@@ -178,23 +178,39 @@ const Home = () => {
                     </div>
 
                     <div className="features-grid">
-                        {features.map(feature => (
-                            <div key={feature.id} className="feature-card" style={{ '--card-color': feature.color, '--card-gradient': feature.gradient }}>
-                                <div className="feature-header">
-                                    <div className="feature-icon-wrapper">
-                                        <div className="feature-icon">{feature.icon}</div>
+                        {features.map(feature => {
+                            let link = null;
+                            if (feature.name === 'Company Question Bank') link = '/question-bank';
+                            else if (feature.name === 'Job Matching') link = '/job-finder';
+                            else if (feature.name === 'Mock Interviews') link = '/mock-interview';
+
+                            return (
+                                <div key={feature.id} className="feature-card" style={{ '--card-color': feature.color, '--card-gradient': feature.gradient }}>
+                                    <div className="feature-header">
+                                        <div className="feature-icon-wrapper">
+                                            <div className="feature-icon">{feature.icon}</div>
+                                        </div>
+                                        <span className="feature-category">{feature.category}</span>
                                     </div>
-                                    <span className="feature-category">{feature.category}</span>
+                                    <h3>{feature.name}</h3>
+                                    <p>{feature.description}</p>
+                                    {link ? (
+                                        <Link to={link} className="feature-card-link">
+                                            <div className="feature-action">
+                                                <span>Learn More</span>
+                                                <span className="arrow">→</span>
+                                            </div>
+                                        </Link>
+                                    ) : (
+                                        <div className="feature-action">
+                                            <span>Learn More</span>
+                                            <span className="arrow">→</span>
+                                        </div>
+                                    )}
+                                    <div className="feature-glow"></div>
                                 </div>
-                                <h3>{feature.name}</h3>
-                                <p>{feature.description}</p>
-                                <div className="feature-action">
-                                    <span>Learn More</span>
-                                    <span className="arrow">→</span>
-                                </div>
-                                <div className="feature-glow"></div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             </section>
