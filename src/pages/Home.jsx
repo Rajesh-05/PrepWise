@@ -193,24 +193,23 @@ const Home = () => {
                             return (
                                 <Link key={feature.id} to={link || feature.route || '#'} className="feature-link" style={{ textDecoration: 'none' }}>
                                     <div className="feature-card" style={{ '--card-color': feature.color, '--card-gradient': feature.gradient }}>
-
-
-                                    <div className="feature-header">
-                                        <div className="feature-icon-wrapper">
-                                            <div className="feature-icon">{feature.icon}</div>
+                                        <div className="feature-header">
+                                            <div className="feature-icon-wrapper">
+                                                <div className="feature-icon">{feature.icon}</div>
+                                            </div>
+                                            <span className="feature-category">{feature.category}</span>
                                         </div>
-                                        <span className="feature-category">{feature.category}</span>
+                                        <h3>{feature.name}</h3>
+                                        <p>{feature.description}</p>
+                                        <div className="feature-action">
+                                            <span>Learn More</span>
+                                            <span className="arrow">→</span>
+                                        </div>
+                                        <div className="feature-glow"></div>
                                     </div>
-                                    <h3>{feature.name}</h3>
-                                    <p>{feature.description}</p>
-                                    <div className="feature-action">
-                                        <span>Learn More</span>
-                                        <span className="arrow">→</span>
-                                    </div>
-                                    <div className="feature-glow"></div>
-                                </div>
-                            </Link>
-                        ))}
+                                </Link>
+                            );
+                        })}
                     </div>
                 </div>
             </section>
