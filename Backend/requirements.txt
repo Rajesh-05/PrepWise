@@ -9,3 +9,5 @@ pdfplumber
 PyMuPDF
 pandas
 jobspy
+pymongo[srv]
+PyJWT

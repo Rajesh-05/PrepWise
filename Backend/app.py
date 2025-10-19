@@ -17,6 +17,12 @@ import fitz
 import tempfile
 import requests
 import pdfplumber
+from pymongo import MongoClient, ASCENDING
+from pymongo.errors import DuplicateKeyError
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
+from datetime import datetime, timedelta, timezone
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 
 app = Flask(__name__)
 CORS(app)
@@ -103,6 +109,26 @@ load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("GEMINI_API_KEY not found in environment variables")
+
+# MongoDB + JWT config
+MONGODB_URI = os.getenv("MONGODB_URI")
+MONGODB_DBNAME = os.getenv("MONGODB_DBNAME", "prepwise")
+JWT_SECRET = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY")
+JWT_EXPIRES_MIN = int(os.getenv("JWT_EXPIRES_MIN", "60"))
+
+mongo_client = None
+db = None
+users_col = None
+if MONGODB_URI:
+    try:
+        mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+        db = mongo_client[MONGODB_DBNAME]
+        users_col = db["users"]
+        users_col.create_index([("email", ASCENDING)], unique=True)
+    except Exception as e:
+        print(f"Warning: Failed to initialize MongoDB: {e}")
+else:
+    print("Warning: MONGODB_URI not set. Auth endpoints will return 503.")
 client = genai.Client(api_key=API_KEY)
 model = "gemini-live-2.5-flash-preview"
 config = {
@@ -277,7 +303,6 @@ def adjust_difficulty(turn_count, feedback):
         print("➡️ Keeping difficulty the same.")
 
 
-import time
 interview_lock = threading.Lock()
 interview_thread_running = False
 interview_stop_event = None
@@ -655,6 +680,152 @@ def generate_questions():
         "difficulty": difficulty,
         "questions": questions_list
     })
+
+# ---------------------------
+# Auth helpers and endpoints
+# ---------------------------
+
+def issue_jwt(user_id, email):
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "email": email,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=JWT_EXPIRES_MIN)).timestamp()),
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    return token
+
+def require_db():
+    if users_col is None or JWT_SECRET is None:
+        return False
+    return True
+
+@app.route('/auth/signup', methods=['POST'])
+def auth_signup():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+    data = request.get_json() or {}
+    first_name = (data.get('firstName') or '').strip()
+    last_name = (data.get('lastName') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+    if not first_name or not last_name or not email or not password:
+        return jsonify({"error": "Missing required fields"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    try:
+        hashed = generate_password_hash(password)
+        doc = {
+            "firstName": first_name,
+            "lastName": last_name,
+            "email": email,
+            "passwordHash": hashed,
+            "marketingOptIn": bool(data.get('acceptMarketing', False)),
+            "createdAt": datetime.now(timezone.utc),
+        }
+        users_col.insert_one(doc)
+        return jsonify({"message": "Signup successful"}), 201
+    except DuplicateKeyError:
+        return jsonify({"error": "An account with this email already exists"}), 409
+    except Exception as e:
+        return jsonify({"error": f"Server error: {e}"}), 500
+
+@app.route('/auth/login', methods=['POST'])
+def auth_login():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+    if not email or not password:
+        return jsonify({"error": "Missing email or password"}), 400
+    user = users_col.find_one({"email": email})
+    if not user or not check_password_hash(user.get('passwordHash', ''), password):
+        return jsonify({"error": "Invalid email or password"}), 401
+    token = issue_jwt(user.get('_id'), email)
+    profile = {
+        "firstName": user.get('firstName'),
+        "lastName": user.get('lastName'),
+        "email": user.get('email'),
+    }
+    return jsonify({"token": token, "user": profile})
+
+@app.route('/auth/me', methods=['GET'])
+def auth_me():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({"error": "Missing token"}), 401
+    token = auth_header.split(' ', 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        email = payload.get('email')
+        user = users_col.find_one({"email": email}, {"passwordHash": 0})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        user["_id"] = str(user["_id"]) if "_id" in user else None
+        return jsonify({"user": user})
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expired"}), 401
+    except Exception as e:
+        return jsonify({"error": f"Invalid token: {e}"}), 401
+
+# Initialize serializer for generating and verifying tokens
+serializer = URLSafeTimedSerializer(JWT_SECRET)
+
+@app.route('/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    user = users_col.find_one({"email": email})
+    if not user:
+        return jsonify({"error": "No account found with this email"}), 404
+
+    # Generate a password reset token
+    token = serializer.dumps(email, salt='password-reset-salt')
+    reset_url = f"http://localhost:3000/reset-password?token={token}"
+
+    # Simulate sending email (replace with actual email service)
+    print(f"Password reset link: {reset_url}")
+
+    return jsonify({"message": "Password reset link sent to your email"})
+
+@app.route('/auth/reset-password', methods=['POST'])
+def reset_password():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+
+    data = request.get_json() or {}
+    token = data.get('token')
+    new_password = data.get('password')
+
+    if not token or not new_password:
+        return jsonify({"error": "Token and new password are required"}), 400
+
+    try:
+        email = serializer.loads(token, salt='password-reset-salt', max_age=3600)  # Token valid for 1 hour
+    except SignatureExpired:
+        return jsonify({"error": "Token has expired"}), 400
+    except Exception as e:
+        return jsonify({"error": f"Invalid token: {e}"}), 400
+
+    # Update the user's password
+    hashed_password = generate_password_hash(new_password)
+    result = users_col.update_one({"email": email}, {"$set": {"passwordHash": hashed_password}})
+
+    if result.modified_count == 0:
+        return jsonify({"error": "Failed to reset password"}), 500
+
+    return jsonify({"message": "Password reset successful"})
+
 
 if __name__ == "__main__":
     app.run(debug=True)
