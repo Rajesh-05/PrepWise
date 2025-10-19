@@ -10,7 +10,7 @@ const Home = () => {
             icon: '🤖',
             description: 'Practice with our intelligent AI that adapts to your skill level and provides real-time feedback',
             category: 'Core Feature',
-            route: '/',
+            route: '/chat',
             color: '#667eea',
             gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
         },
@@ -202,7 +202,7 @@ const Home = () => {
                                         <h3>{feature.name}</h3>
                                         <p>{feature.description}</p>
                                         <div className="feature-action">
-                                            <span>Learn More</span>
+                                            <span>Explore Usage</span>
                                             <span className="arrow">→</span>
                                         </div>
                                         <div className="feature-glow"></div>

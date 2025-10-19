@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import '../styles/Login.css';
 
 const Login = () => {
@@ -10,6 +11,8 @@ const Login = () => {
     });
 
     const [isLoading, setIsLoading] = useState(false);
+    const [serverError, setServerError] = useState('');
+    const navigate = useNavigate();
 
     const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -22,12 +25,23 @@ const Login = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setIsLoading(true);
-
-        // Simulate API call
-        setTimeout(() => {
+        setServerError('');
+        try {
+            const res = await axios.post('/auth/login', {
+                email: formData.email,
+                password: formData.password
+            });
+            const { token, user } = res.data;
+            // Store token; for a production app consider httpOnly cookies via server
+            localStorage.setItem('auth_token', token);
+            localStorage.setItem('auth_user', JSON.stringify(user));
+            navigate('/', { replace: true });
+        } catch (err) {
+            const msg = err?.response?.data?.error || 'Failed to sign in. Please check your credentials.';
+            setServerError(msg);
+        } finally {
             setIsLoading(false);
-            console.log('Login attempt:', formData);
-        }, 1500);
+        }
     };
 
     return (
@@ -97,6 +111,7 @@ const Login = () => {
                                         value={formData.email}
                                         onChange={handleInputChange}
                                         placeholder="Enter your email"
+                                        autoComplete="email"
                                         required
                                     />
                                 </div>
@@ -113,6 +128,7 @@ const Login = () => {
                                         value={formData.password}
                                         onChange={handleInputChange}
                                         placeholder="Enter your password"
+                                        autoComplete="current-password"
                                         required
                                     />
                                 </div>
@@ -129,7 +145,7 @@ const Login = () => {
                                     <span className="checkmark"></span>
                                     Remember me
                                 </label>
-                                <a href="/forgot-password" className="forgot-link">Forgot Password?</a>
+                                <Link to="/forgot-password" className="forgot-link">Forgot Password?</Link>
                             </div>
 
                             <button
@@ -156,8 +172,14 @@ const Login = () => {
                                 Continue with Google
                             </button>
 
+                            {serverError && (
+                                <div className="error-message" role="alert" aria-live="polite" style={{ marginTop: '0.5rem' }}>
+                                    {serverError}
+                                </div>
+                            )}
+
                             <div className="signup-prompt">
-                                <p>Don't have an account? <a href="/signup">Sign up for free</a></p>
+                                <p>Don't have an account? <Link to="/signup">Sign up for free</Link></p>
                             </div>
                         </form>
                     </div>
