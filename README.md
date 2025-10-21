@@ -55,13 +55,26 @@ CareerAI is the ultimate platform designed to help you prepare, practice, and la
 
 2. Install Python dependencies:
    ```bash
+   # On Windows PowerShell use the configured Python executable if needed
    pip install -r requirements.txt
    ```
 
 3. Start the Flask server:
    ```bash
+   # In PowerShell, run:
    python app.py
+   # Or, using the explicit Python path if you have multiple Python versions:
+   # "C:/Users/YourUser/AppData/Local/Programs/Python/Python312/python.exe" app.py
    ```
+
+### Environment
+The backend uses the Gemini API. Create a `.env` file inside the `Backend/` folder with:
+
+```
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+If `GEMINI_API_KEY` is missing the backend will raise an error at startup for Gemini-dependent routes.
 
 4. The API will be available at [http://localhost:5000](http://localhost:5000)
 

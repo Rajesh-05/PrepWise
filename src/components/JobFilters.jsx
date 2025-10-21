@@ -87,7 +87,7 @@ const JobFilters = ({ filters, onChange, onReset, onRefresh }) => {
             </div>
 
             <div className="refresh-container">
-                <button className="refresh-btn" onClick={onRefresh} title="Refresh jobs">🔄 Refresh</button>
+                <button className="refresh-btn" onClick={onRefresh} title="Refresh jobs">Refresh</button>
             </div>
         </aside>
     );

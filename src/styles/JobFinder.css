@@ -1,7 +1,7 @@
 /* Refresh button styles */
 .refresh-btn {
-    display: inline-block;
-    margin-top: 16px;
+    display: block;
+    margin: 16px auto;
     padding: 8px 18px;
     background: linear-gradient(90deg, #38bdf8 0%, #6366f1 100%);
     color: #fff;

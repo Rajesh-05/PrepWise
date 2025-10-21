@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import sounddevice as sd
 import numpy as np
 from google import genai
@@ -16,6 +17,12 @@ import fitz
 import tempfile
 import requests
 import pdfplumber
+from pymongo import MongoClient, ASCENDING
+from pymongo.errors import DuplicateKeyError
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
+from datetime import datetime, timedelta, timezone
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 
 app = Flask(__name__)
 CORS(app)
@@ -95,21 +102,6 @@ def get_jobs():
 	except Exception as e:
 		return jsonify({"error": str(e), "jobs": []})
   
-model = "gemini-live-2.5-flash-preview"
-
-config = {
-    "response_modalities": ["AUDIO"],
-    "speech_config": types.SpeechConfig(
-        voice_config=types.VoiceConfig(
-            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                voice_name="LEDA"
-            )
-        )
-    ),
-   "system_instruction": "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. Keep the tone professional, constructive, and supportive."
-}
-
-
 # Load .env file
 load_dotenv()
 
@@ -117,81 +109,28 @@ load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("GEMINI_API_KEY not found in environment variables")
-client = genai.Client(api_key=API_KEY)
 
-# Audio queues for threading with larger max size
-audio_input_queue = Queue(maxsize=100)
-audio_output_queue = Queue(maxsize=200)
+# MongoDB + JWT config
+MONGODB_URI = os.getenv("MONGODB_URI")
+MONGODB_DBNAME = os.getenv("MONGODB_DBNAME", "prepwise")
+JWT_SECRET = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY")
+JWT_EXPIRES_MIN = int(os.getenv("JWT_EXPIRES_MIN", "60"))
 
-def audio_input_callback(indata, frames, time, status):
-    """Callback for capturing microphone input"""
-    if status:
-        print(f"Input status: {status}")
+mongo_client = None
+db = None
+users_col = None
+if MONGODB_URI:
     try:
-        audio_input_queue.put(indata.copy(), block=False)
-    except:
-        pass  # Queue full, skip this chunk
-
-# Audio buffer for continuous playback
-audio_buffer = np.array([], dtype=np.int16)
-buffer_lock = threading.Lock()
-
-def audio_output_callback(outdata, frames, time, status):
-    """Callback for playing audio output"""
-    global audio_buffer
-    if status:
-        print(f"Output status: {status}")
-    with buffer_lock:
-        # Fill buffer from queue
-        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
-            try:
-                data = audio_output_queue.get_nowait()
-                audio_buffer = np.append(audio_buffer, data)
-            except:
-                break
-        # Play from buffer
-        if len(audio_buffer) >= frames:
-            outdata[:, 0] = audio_buffer[:frames]
-            audio_buffer = audio_buffer[frames:]
-        else:
-            # Not enough data, pad with silence
-            if len(audio_buffer) > 0:
-                outdata[:len(audio_buffer), 0] = audio_buffer
-                outdata[len(audio_buffer):, 0] = 0
-                audio_buffer = np.array([], dtype=np.int16)
-            else:
-                outdata.fill(0)
-
-async def send_audio(session, stop_event):
-    """Send audio from microphone to Gemini"""
-    print("🎤 Listening... (Press Ctrl+C to stop)")
-    try:
-        while not stop_event.is_set():
-            try:
-                if stop_event.is_set():
-                    break
-                if not audio_input_queue.empty():
-                    audio_chunk = audio_input_queue.get(timeout=0.01)
-                    await session.send_realtime_input(
-                        audio=types.Blob(
-                            data=audio_chunk.tobytes(),
-                            mime_type="audio/pcm;rate=16000"
-                        )
-                    )
-                else:
-                    await asyncio.sleep(0.01)
-            except Exception as e:
-                if stop_event.is_set():
-                    break
-                print(f"Error in send loop: {e}")
-                await asyncio.sleep(0.1)
-    except asyncio.CancelledError:
-        print("Send task cancelled")
+        mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+        db = mongo_client[MONGODB_DBNAME]
+        users_col = db["users"]
+        users_col.create_index([("email", ASCENDING)], unique=True)
     except Exception as e:
-        print(f"Fatal error sending audio: {e}")
-        import traceback
-        traceback.print_exc()
-
+        print(f"Warning: Failed to initialize MongoDB: {e}")
+else:
+    print("Warning: MONGODB_URI not set. Auth endpoints will return 503.")
+client = genai.Client(api_key=API_KEY)
+model = "gemini-live-2.5-flash-preview"
 config = {
     "response_modalities": ["AUDIO"],
     "speech_config": types.SpeechConfig(
@@ -202,8 +141,41 @@ config = {
         )
     ),
    "system_instruction": "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. Keep the tone professional, constructive, and supportive."
-
 }
+
+# Keep the base system instruction separate so we don't accidentally append it multiple times
+BASE_SYSTEM_INSTRUCTION = config.get("system_instruction", "You are a professional mock interviewer.")
+
+# Audio buffer for continuous playback
+audio_buffer = np.array([], dtype=np.int16)
+buffer_lock = threading.Lock()
+
+def audio_output_callback(outdata, frames, time, status):
+    """Callback for playing audio output"""
+    global audio_buffer
+    if status:
+        print(f"Output status: {status}")
+    with buffer_lock:
+        # Fill buffer from queue
+        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
+            try:
+                data = audio_output_queue.get_nowait()
+                audio_buffer = np.append(audio_buffer, data)
+            except:
+                break
+        # Play from buffer
+        if len(audio_buffer) >= frames:
+            outdata[:, 0] = audio_buffer[:frames]
+            audio_buffer = audio_buffer[frames:]
+        else:
+            # Not enough data, pad with silence
+            if len(audio_buffer) > 0:
+                outdata[:len(audio_buffer), 0] = audio_buffer
+                outdata[len(audio_buffer):, 0] = 0
+                audio_buffer = np.array([], dtype=np.int16)
+            else:
+                outdata.fill(0)
+
 
 
 # Audio queues for threading with larger max size
@@ -219,38 +191,6 @@ def audio_input_callback(indata, frames, time, status):
     except:
         pass  # Queue full, skip this chunk
 
-# Audio buffer for continuous playback
-audio_buffer = np.array([], dtype=np.int16)
-buffer_lock = threading.Lock()
-
-def audio_output_callback(outdata, frames, time, status):
-    """Callback for playing audio output"""
-    global audio_buffer
-    
-    if status:
-        print(f"Output status: {status}")
-    
-    with buffer_lock:
-        # Fill buffer from queue
-        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
-            try:
-                data = audio_output_queue.get_nowait()
-                audio_buffer = np.append(audio_buffer, data)
-            except:
-                break
-        
-        # Play from buffer
-        if len(audio_buffer) >= frames:
-            outdata[:, 0] = audio_buffer[:frames]
-            audio_buffer = audio_buffer[frames:]
-        else:
-            # Not enough data, pad with silence
-            if len(audio_buffer) > 0:
-                outdata[:len(audio_buffer), 0] = audio_buffer
-                outdata[len(audio_buffer):, 0] = 0
-                audio_buffer = np.array([], dtype=np.int16)
-            else:
-                outdata.fill(0)
 
 async def send_audio(session, stop_event):
     """Send audio from microphone to Gemini"""
@@ -363,18 +303,17 @@ def adjust_difficulty(turn_count, feedback):
         print("➡️ Keeping difficulty the same.")
 
 
-import time
 interview_lock = threading.Lock()
 interview_thread_running = False
 interview_stop_event = None
 
 def run_interview_session(job_description):
     global interview_thread_running, interview_stop_event
-    config["system_instruction"] = (
-        "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. "
-        "Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. "
-        "Keep the tone professional, constructive, and supportive. Use the following Job Description (JD) as context: \n"
-        f"{job_description}"
+    # Create a session-specific config to avoid mutating the global config and accidentally
+    # appending the system instruction multiple times if sessions are started repeatedly.
+    session_config = dict(config)
+    session_config["system_instruction"] = (
+        f"{BASE_SYSTEM_INSTRUCTION} Use the following Job Description (JD) as context:\n{job_description}"
     )
 
     def interview_thread():
@@ -386,7 +325,7 @@ def run_interview_session(job_description):
             global interview_stop_event, interview_thread_running
             nonlocal input_stream, output_stream
             try:
-                async with client.aio.live.connect(model=model, config=config) as session:
+                async with client.aio.live.connect(model=model, config=session_config) as session:
                     print("✅ Connected to Gemini Live API")
                     input_stream = sd.InputStream(
                         channels=1,
@@ -471,11 +410,31 @@ def get_gemini_resume_improvements(resume_text):
     model1 = "gemini-2.5-flash"
     response = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
-        json=data
+        json=data,
+        timeout=30
     )
+
+    # Defensive parsing: check HTTP status and expected keys, return helpful debug info on failure
     try:
-        result = response.json()
-        text = result["candidates"][0]["content"]["parts"][0]["text"]
+        resp_json = response.json()
+    except Exception:
+        return {"error": "Invalid JSON response from Gemini API", "raw_response": response.text}
+
+    # If API returned an error structure or missing expected keys, return that for debugging
+    if not response.ok:
+        return {"error": f"Gemini API returned status {response.status_code}", "details": resp_json}
+
+    # Try to extract text candidate safely
+    try:
+        candidates = resp_json.get("candidates")
+        if not candidates or not isinstance(candidates, list):
+            return {"error": "Gemini response missing 'candidates' field", "raw": resp_json}
+        text = candidates[0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        return {"error": f"Failed to extract text from Gemini response: {e}", "raw": resp_json}
+
+    # Clean markdown fences if present
+    try:
         if text.strip().startswith('```'):
             text = text.strip().split('```')[-2] if '```' in text.strip() else text.strip()
             if text.strip().startswith('json'):
@@ -483,7 +442,7 @@ def get_gemini_resume_improvements(resume_text):
         import json
         return json.loads(text)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"Failed to parse JSON suggestions from Gemini text: {e}", "extracted_text": text}
     
 def get_gemini_ats_score(resume_text, job_description):
     prompt = f"""
@@ -509,11 +468,33 @@ def get_gemini_ats_score(resume_text, job_description):
     model1 = "gemini-2.5-flash"
     response = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
-        json=data
+        json=data,
+        timeout=30
     )
+
     try:
-        result = response.json()
-        text = result["candidates"][0]["content"]["parts"][0]["text"]
+        resp_json = response.json()
+    except Exception:
+        print("Gemini API raw response:", response.text)
+        return {"error": "Invalid JSON response from Gemini API", "raw_response": response.text}
+
+    if not response.ok:
+        print("Gemini API returned non-200:", response.status_code, resp_json)
+        return {"error": f"Gemini API returned status {response.status_code}", "details": resp_json}
+
+    # Defensive extraction
+    try:
+        candidates = resp_json.get("candidates")
+        if not candidates or not isinstance(candidates, list):
+            print("Gemini response missing 'candidates':", resp_json)
+            return {"error": "Gemini response missing 'candidates' field", "raw": resp_json}
+        text = candidates[0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        print("Error extracting candidate text:", e)
+        return {"error": f"Error extracting candidate text: {e}", "raw": resp_json}
+
+    # Clean and parse JSON from text
+    try:
         if text.strip().startswith('```'):
             text = text.strip().split('```')[-2] if '```' in text.strip() else text.strip()
             if text.strip().startswith('json'):
@@ -521,9 +502,8 @@ def get_gemini_ats_score(resume_text, job_description):
         import json
         return json.loads(text)
     except Exception as e:
-        print("Gemini API raw response:", response.text)
         print("Error parsing Gemini API response:", str(e))
-        return {"error": str(e), "raw_response": response.text}
+        return {"error": f"Error parsing Gemini API response: {e}", "extracted_text": text}
 
 @app.route('/stop-interview', methods=['POST'])
 def stop_interview_route():
@@ -620,6 +600,232 @@ def evaluate_resume():
     if "error" in result:
         return jsonify(result), 500
     return jsonify(result)
+
+@app.route('/generate-questions', methods=['POST'])
+def generate_questions():
+    data = request.get_json()
+    company = data.get('company_name')
+    role = data.get('role')
+    domain = data.get('domain')
+    experience = data.get('experience_level')
+    qtype = data.get('question_type')
+    difficulty = data.get('difficulty')
+    num_q = data.get('num_questions', 15)
+
+    if not (company and role and domain and experience and qtype and difficulty):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    prompt = f"""
+    You are an expert interviewer. Generate {num_q} unique interview questions.
+
+    Company: {company}
+    Role: {role}
+    Domain: {domain}
+    Experience Level: {experience}
+    Question Type: {qtype}
+    Difficulty: {difficulty}
+
+    For each question, return a JSON object with:
+    - id: a unique number
+    - question: the actual question text
+    - answer: a clear and concise correct answer
+    - explanation: a short explanation or reasoning behind the answer
+
+    Return ONLY a valid JSON array like:
+    [
+      {{
+        "id": 1,
+        "question": "What is React?",
+        "answer": "A JavaScript library for building user interfaces.",
+        "explanation": "React allows building reusable UI components efficiently."
+      }}
+    ]
+    """
+
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    model_name = "gemini-2.5-flash"
+    response = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}",
+        json=data,
+        timeout=60
+    )
+
+    try:
+        resp_json = response.json()
+        candidates = resp_json.get("candidates", [])
+        text = candidates[0]["content"]["parts"][0]["text"]
+
+        # Clean Gemini's markdown fences and control characters
+        import re
+        text = text.strip()
+        if text.startswith('```'):
+            # Remove markdown fences
+            text = re.sub(r'^```[a-zA-Z]*', '', text)
+            text = text.replace('```', '').strip()
+        # Remove any control characters
+        text = re.sub(r'[\x00-\x1F]+', '', text)
+        # Log raw text for debugging
+        print('Gemini raw response:', repr(text))
+        import json
+        questions_list = json.loads(text)
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse Gemini response: {e}", "raw": text if 'text' in locals() else response.text}), 500
+
+    return jsonify({
+        "company": company,
+        "role": role,
+        "domain": domain,
+        "experience_level": experience,
+        "question_type": qtype,
+        "difficulty": difficulty,
+        "questions": questions_list
+    })
+
+# ---------------------------
+# Auth helpers and endpoints
+# ---------------------------
+
+def issue_jwt(user_id, email):
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "email": email,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=JWT_EXPIRES_MIN)).timestamp()),
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    return token
+
+def require_db():
+    if users_col is None or JWT_SECRET is None:
+        return False
+    return True
+
+@app.route('/auth/signup', methods=['POST'])
+def auth_signup():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+    data = request.get_json() or {}
+    first_name = (data.get('firstName') or '').strip()
+    last_name = (data.get('lastName') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+    if not first_name or not last_name or not email or not password:
+        return jsonify({"error": "Missing required fields"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    try:
+        hashed = generate_password_hash(password)
+        doc = {
+            "firstName": first_name,
+            "lastName": last_name,
+            "email": email,
+            "passwordHash": hashed,
+            "marketingOptIn": bool(data.get('acceptMarketing', False)),
+            "createdAt": datetime.now(timezone.utc),
+        }
+        users_col.insert_one(doc)
+        return jsonify({"message": "Signup successful"}), 201
+    except DuplicateKeyError:
+        return jsonify({"error": "An account with this email already exists"}), 409
+    except Exception as e:
+        return jsonify({"error": f"Server error: {e}"}), 500
+
+@app.route('/auth/login', methods=['POST'])
+def auth_login():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+    if not email or not password:
+        return jsonify({"error": "Missing email or password"}), 400
+    user = users_col.find_one({"email": email})
+    if not user or not check_password_hash(user.get('passwordHash', ''), password):
+        return jsonify({"error": "Invalid email or password"}), 401
+    token = issue_jwt(user.get('_id'), email)
+    profile = {
+        "firstName": user.get('firstName'),
+        "lastName": user.get('lastName'),
+        "email": user.get('email'),
+    }
+    return jsonify({"token": token, "user": profile})
+
+@app.route('/auth/me', methods=['GET'])
+def auth_me():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({"error": "Missing token"}), 401
+    token = auth_header.split(' ', 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        email = payload.get('email')
+        user = users_col.find_one({"email": email}, {"passwordHash": 0})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        user["_id"] = str(user["_id"]) if "_id" in user else None
+        return jsonify({"user": user})
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token expired"}), 401
+    except Exception as e:
+        return jsonify({"error": f"Invalid token: {e}"}), 401
+
+# Initialize serializer for generating and verifying tokens
+serializer = URLSafeTimedSerializer(JWT_SECRET)
+
+@app.route('/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    user = users_col.find_one({"email": email})
+    if not user:
+        return jsonify({"error": "No account found with this email"}), 404
+
+    # Generate a password reset token
+    token = serializer.dumps(email, salt='password-reset-salt')
+    reset_url = f"http://localhost:3000/reset-password?token={token}"
+
+    # Simulate sending email (replace with actual email service)
+    print(f"Password reset link: {reset_url}")
+
+    return jsonify({"message": "Password reset link sent to your email"})
+
+@app.route('/auth/reset-password', methods=['POST'])
+def reset_password():
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+
+    data = request.get_json() or {}
+    token = data.get('token')
+    new_password = data.get('password')
+
+    if not token or not new_password:
+        return jsonify({"error": "Token and new password are required"}), 400
+
+    try:
+        email = serializer.loads(token, salt='password-reset-salt', max_age=3600)  # Token valid for 1 hour
+    except SignatureExpired:
+        return jsonify({"error": "Token has expired"}), 400
+    except Exception as e:
+        return jsonify({"error": f"Invalid token: {e}"}), 400
+
+    # Update the user's password
+    hashed_password = generate_password_hash(new_password)
+    result = users_col.update_one({"email": email}, {"$set": {"passwordHash": hashed_password}})
+
+    if result.modified_count == 0:
+        return jsonify({"error": "Failed to reset password"}), 500
+
+    return jsonify({"message": "Password reset successful"})
+
 
 if __name__ == "__main__":
     app.run(debug=True)
