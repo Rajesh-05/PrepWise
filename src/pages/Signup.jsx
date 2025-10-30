@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import '../styles/Signup.css';
 
 const Signup = () => {
@@ -15,6 +16,8 @@ const Signup = () => {
 
     const [isLoading, setIsLoading] = useState(false);
     const [errors, setErrors] = useState({});
+    const [serverError, setServerError] = useState('');
+    const navigate = useNavigate();
 
     const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -29,6 +32,15 @@ const Signup = () => {
                 ...prev,
                 [name]: ''
             }));
+        }
+
+        // If password changes and confirmPassword was set, revalidate match to clear lingering error
+        if ((name === 'password' || name === 'confirmPassword') && formData.confirmPassword && formData.password) {
+            const pwd = name === 'password' ? value : formData.password;
+            const cpwd = name === 'confirmPassword' ? value : formData.confirmPassword;
+            if (pwd === cpwd) {
+                setErrors(prev => ({ ...prev, confirmPassword: '' }));
+            }
         }
     };
 
@@ -77,13 +89,23 @@ const Signup = () => {
         }
 
         setIsLoading(true);
-
-        // Simulate API call
-        setTimeout(() => {
+        setServerError('');
+        try {
+            await axios.post('/auth/signup', {
+                firstName: formData.firstName,
+                lastName: formData.lastName,
+                email: formData.email,
+                password: formData.password,
+                acceptMarketing: formData.acceptMarketing
+            });
+            // On success, navigate to login
+            navigate('/login', { replace: true, state: { signupEmail: formData.email } });
+        } catch (err) {
+            const msg = err?.response?.data?.error || 'Failed to create account. Please try again.';
+            setServerError(msg);
+        } finally {
             setIsLoading(false);
-            console.log('Signup attempt:', formData);
-            // Here you would typically redirect to login or dashboard
-        }, 1500);
+        }
     };
 
     return (
@@ -141,7 +163,7 @@ const Signup = () => {
                             <p>Join thousands of professionals who've transformed their careers</p>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="signup-form">
+                        <form onSubmit={handleSubmit} className="signup-form" noValidate>
                             <div className="name-row">
                                 <div className="form-group">
                                     <label htmlFor="firstName">First Name</label>
@@ -154,6 +176,7 @@ const Signup = () => {
                                         placeholder="Enter your first name"
                                         className={errors.firstName ? 'error' : ''}
                                         required
+                                        autoComplete="given-name"
                                     />
                                     {errors.firstName && <span className="error-message">{errors.firstName}</span>}
                                 </div>
@@ -169,6 +192,7 @@ const Signup = () => {
                                         placeholder="Enter your last name"
                                         className={errors.lastName ? 'error' : ''}
                                         required
+                                        autoComplete="family-name"
                                     />
                                     {errors.lastName && <span className="error-message">{errors.lastName}</span>}
                                 </div>
@@ -185,6 +209,7 @@ const Signup = () => {
                                     placeholder="Enter your email address"
                                     className={errors.email ? 'error' : ''}
                                     required
+                                    autoComplete="email"
                                 />
                                 {errors.email && <span className="error-message">{errors.email}</span>}
                             </div>
@@ -200,6 +225,7 @@ const Signup = () => {
                                     placeholder="Create a strong password"
                                     className={errors.password ? 'error' : ''}
                                     required
+                                    autoComplete="new-password"
                                 />
                                 {errors.password && <span className="error-message">{errors.password}</span>}
                                 <div className="password-hint">Must be at least 8 characters long</div>
@@ -216,7 +242,14 @@ const Signup = () => {
                                     placeholder="Confirm your password"
                                     className={errors.confirmPassword ? 'error' : ''}
                                     required
+                                    autoComplete="new-password"
                                 />
+
+                                {serverError && (
+                                    <div className="error-message" role="alert" aria-live="polite" style={{ marginTop: '0.5rem' }}>
+                                        {serverError}
+                                    </div>
+                                )}
                                 {errors.confirmPassword && <span className="error-message">{errors.confirmPassword}</span>}
                             </div>
 

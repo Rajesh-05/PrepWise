@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import '../styles/Home.css';
 
 const Home = () => {
@@ -9,6 +10,7 @@ const Home = () => {
             icon: '🤖',
             description: 'Practice with our intelligent AI that adapts to your skill level and provides real-time feedback',
             category: 'Core Feature',
+            route: '/chat',
             color: '#667eea',
             gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
         },
@@ -18,6 +20,7 @@ const Home = () => {
             icon: '📄',
             description: 'Create ATS-optimized resumes with AI suggestions and professional templates',
             category: 'Resume Tools',
+            route: '/',
             color: '#f093fb',
             gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
         },
@@ -27,6 +30,7 @@ const Home = () => {
             icon: '🏢',
             description: 'Access real interview questions from top companies with detailed answer guides',
             category: 'Interview Prep',
+            route: '/',
             color: '#4facfe',
             gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
         },
@@ -36,6 +40,7 @@ const Home = () => {
             icon: '📊',
             description: 'Track your improvement with detailed insights and personalized recommendations',
             category: 'Analytics',
+            route: '/',
             color: '#43e97b',
             gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
         },
@@ -45,6 +50,7 @@ const Home = () => {
             icon: '🎭',
             description: 'Simulate real interview scenarios with voice-based AI interactions',
             category: 'Practice',
+            route: '/mock-interview',
             color: '#fa709a',
             gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
         },
@@ -54,6 +60,7 @@ const Home = () => {
             icon: '🎯',
             description: 'Find opportunities that match your skills and experience perfectly',
             category: 'Career',
+            route: '/job-finder',
             color: '#ffecd2',
             gradient: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)'
         }
@@ -121,6 +128,9 @@ const Home = () => {
                                 <span>Watch Demo</span>
                                 <span className="play-icon">▶</span>
                             </button>
+                            <Link to="/chat" className="btn-primary">
+                                <span>Go to Chat</span>
+                            </Link>
                         </div>
 
                         <div className="hero-stats">
@@ -174,23 +184,32 @@ const Home = () => {
                     </div>
 
                     <div className="features-grid">
-                        {features.map(feature => (
-                            <div key={feature.id} className="feature-card" style={{ '--card-color': feature.color, '--card-gradient': feature.gradient }}>
-                                <div className="feature-header">
-                                    <div className="feature-icon-wrapper">
-                                        <div className="feature-icon">{feature.icon}</div>
+                        {features.map(feature => {
+                            let link = null;
+                            if (feature.name === 'Company Question Bank') link = '/question-bank';
+                            else if (feature.name === 'Job Matching') link = '/job-finder';
+                            else if (feature.name === 'Mock Interviews') link = '/mock-interview';
+
+                            return (
+                                <Link key={feature.id} to={link || feature.route || '#'} className="feature-link" style={{ textDecoration: 'none' }}>
+                                    <div className="feature-card" style={{ '--card-color': feature.color, '--card-gradient': feature.gradient }}>
+                                        <div className="feature-header">
+                                            <div className="feature-icon-wrapper">
+                                                <div className="feature-icon">{feature.icon}</div>
+                                            </div>
+                                            <span className="feature-category">{feature.category}</span>
+                                        </div>
+                                        <h3>{feature.name}</h3>
+                                        <p>{feature.description}</p>
+                                        <div className="feature-action">
+                                            <span>Explore Usage</span>
+                                            <span className="arrow">→</span>
+                                        </div>
+                                        <div className="feature-glow"></div>
                                     </div>
-                                    <span className="feature-category">{feature.category}</span>
-                                </div>
-                                <h3>{feature.name}</h3>
-                                <p>{feature.description}</p>
-                                <div className="feature-action">
-                                    <span>Learn More</span>
-                                    <span className="arrow">→</span>
-                                </div>
-                                <div className="feature-glow"></div>
-                            </div>
-                        ))}
+                                </Link>
+                            );
+                        })}
                     </div>
                 </div>
             </section>
