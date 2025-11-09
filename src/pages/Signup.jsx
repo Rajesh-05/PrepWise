@@ -123,7 +123,7 @@ const Signup = () => {
                     <div className="branding-content">
                         <div className="logo-section">
                             <div className="logo-icon">🚀</div>
-                            <h1>Join CareerAI</h1>
+                            <h1>Join PrepWise</h1>
                             <p>Start your journey to interview success</p>
                         </div>
 

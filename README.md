@@ -1,6 +1,6 @@
-# CareerAI - Your AI-Powered Career Companion
+# PrepWise AI - Your AI-Powered Career Companion
 
-CareerAI is the ultimate platform designed to help you prepare, practice, and land your dream job. Our comprehensive suite of AI-powered tools covers every aspect of your career journey.
+PrepWise AI is the ultimate platform designed to help you prepare, practice, and land your dream job. Our comprehensive suite of AI-powered tools covers every aspect of your career journey.
 
 ## 🚀 Key Features
 
@@ -40,12 +40,23 @@ CareerAI is the ultimate platform designed to help you prepare, practice, and la
    npm install
    ```
 
-2. Start the development server:
+2. Create a `.env` file in the root directory:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Add your Gemini API key to the `.env` file:
+   ```
+   REACT_APP_GEMINI_API_KEY=your_actual_gemini_api_key_here
+   ```
+   Get your free API key from: https://makersuite.google.com/app/apikey
+
+4. Start the development server:
    ```bash
    npm start
    ```
 
-3. Open [http://localhost:3000](http://localhost:3000) to view the app
+5. Open [http://localhost:3000](http://localhost:3000) to view the app
 
 ### Backend Setup
 1. Navigate to the Backend directory:
@@ -81,7 +92,7 @@ If `GEMINI_API_KEY` is missing the backend will raise an error at startup for Ge
 ## 📁 Project Structure
 
 ```
-CareerAI/
+PrepWise AI/
 ├── src/                    # Frontend source code
 │   ├── components/         # Reusable UI components
 │   │   ├── Header.js      # Navigation header

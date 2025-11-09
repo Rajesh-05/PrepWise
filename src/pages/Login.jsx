@@ -59,7 +59,7 @@ const Login = () => {
                     <div className="branding-content">
                         <div className="logo-section">
                             <div className="logo-icon">🤖</div>
-                            <h1>CareerAI</h1>
+                            <h1>PrepWise.AI</h1>
                             <p>Your AI Career Companion</p>
                         </div>
 
