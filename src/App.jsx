@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Chat from './pages/Chat';
 import ResumeEvaluator from './pages/ResumeEvaluator';
+import ResumeBuilder from './pages/ResumeBuilder';
 import JobFinder from './pages/JobFinder';
 import MockInterview from './pages/MockInterview';
 import Pricing from './pages/Pricing';
@@ -29,13 +30,14 @@ function AppContent() {
                     <Route path="/forgot-password" element={<ForgotPassword />} />
                     <Route path="/chat" element={<Chat />} />
                     <Route path="/resume-evaluator" element={<ResumeEvaluator />} />
+                    <Route path="/resume-builder" element={<ResumeBuilder />} />
                     <Route path="/job-finder" element={<JobFinder />} />
                     <Route path="/mock-interview" element={<MockInterview />} />
                     <Route path="/pricing" element={<Pricing />} />
                     <Route path="/question-bank" element={<QuestionBank />} />
                 </Routes>
             </main>
-            {location.pathname !== '/chat' && location.pathname !== '/job-finder' && location.pathname !== '/resume-evaluator' && location.pathname !== '/mock-interview' && location.pathname !== '/question-bank' && <Footer />}
+            {location.pathname !== '/chat' && location.pathname !== '/job-finder' && location.pathname !== '/resume-evaluator' && location.pathname !== '/mock-interview' && location.pathname !== '/question-bank' && location.pathname !== '/resume-builder' && <Footer />}
         </div>
     );
 }
