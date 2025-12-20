@@ -130,7 +130,8 @@ if MONGODB_URI:
 else:
     print("Warning: MONGODB_URI not set. Auth endpoints will return 503.")
 client = genai.Client(api_key=API_KEY)
-model = "gemini-live-2.5-flash-preview"
+# Use a supported Gemini model for the live API
+model = "gemini-2.5-flash"
 config = {
     "response_modalities": ["AUDIO"],
     "speech_config": types.SpeechConfig(

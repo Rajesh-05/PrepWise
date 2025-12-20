@@ -7,7 +7,7 @@ const plans = [
     name: 'Free',
     price: '$0',
     yearly: '',
-    description: 'Get started with CareerAI for free. Limited access to core features.',
+    description: 'Get started with PrepWise for free. Limited access to core features.',
     features: [
       '3 resume evaluations per month',
       'Basic job finder access',
@@ -38,7 +38,7 @@ const plans = [
     name: 'Unlimited',
     price: '$15/month',
     yearly: '$150/year',
-    description: 'Full access to all CareerAI features, templates, and priority support.',
+    description: 'Full access to all PrepWise features, templates, and priority support.',
     features: [
       'Unlimited resume evaluations',
       'Unlimited job finder access',
@@ -101,7 +101,7 @@ const Pricing = () => {
         ))}
       </div>
       <div style={{textAlign: 'center', marginTop: '2rem', color: '#10b981', fontWeight: 600, fontSize: '1.15rem'}}>
-        {selected === 'Free' && 'You have selected the Free plan. Enjoy limited access to CareerAI features.'}
+        {selected === 'Free' && 'You have selected the Free plan. Enjoy limited access to PrepWise features.'}
         {selected === 'Starter' && 'You have selected the Starter plan. Unlock more resume tools and templates.'}
         {selected === 'Unlimited' && 'You have selected the Unlimited plan. Enjoy full access and priority support!'}
       </div>
