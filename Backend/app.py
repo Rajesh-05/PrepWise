@@ -306,8 +306,7 @@ def create_vapi_assistant():
                     "language": "en-US"
                 }
             },
-            timeout=10,
-            verify=False
+            timeout=10
         )
         if response.status_code != 201:
             return jsonify({"error": "Failed to create Vapi assistant", "details": response.json()}), response.status_code
