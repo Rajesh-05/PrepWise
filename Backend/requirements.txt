@@ -11,3 +11,5 @@ pandas
 python-jobspy
 pymongo[srv]
 PyJWT
+Flask-Dance
+werkzeug

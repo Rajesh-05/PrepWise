@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import Toast from '../components/Toast';
 import '../styles/Login.css';
 
 const Login = () => {
@@ -12,6 +13,7 @@ const Login = () => {
 
     const [isLoading, setIsLoading] = useState(false);
     const [serverError, setServerError] = useState('');
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
     const navigate = useNavigate();
 
     const handleInputChange = (e) => {
@@ -35,14 +37,66 @@ const Login = () => {
             // Store token; for a production app consider httpOnly cookies via server
             localStorage.setItem('auth_token', token);
             localStorage.setItem('auth_user', JSON.stringify(user));
-            navigate('/', { replace: true });
+            setToast({ show: true, message: 'Login successful! Redirecting...', type: 'success' });
+            setTimeout(() => navigate('/', { replace: true }), 1000);
         } catch (err) {
             const msg = err?.response?.data?.error || 'Failed to sign in. Please check your credentials.';
             setServerError(msg);
+            setToast({ show: true, message: msg, type: 'error' });
         } finally {
             setIsLoading(false);
         }
     };
+
+    // Auto-login if session_token exists
+    useEffect(() => {
+        const sessionToken = localStorage.getItem('session_token');
+        if (sessionToken) {
+            axios.post('/auto-login', { session_token: sessionToken })
+                .then(res => {
+                    localStorage.setItem('auth_user', JSON.stringify(res.data.user));
+                    navigate('/', { replace: true });
+                })
+                .catch(() => {
+                    localStorage.removeItem('session_token');
+                });
+        }
+    }, [navigate]);
+
+    // Google login handler
+    const handleGoogleLogin = () => {
+        window.location.href = 'http://localhost:5000/auth/google/login';
+    };
+
+    // Listen for Google login callback (session_token in URL hash)
+    useEffect(() => {
+        if (window.location.hash.includes('session_token')) {
+            const params = new URLSearchParams(window.location.hash.substring(1));
+            const sessionToken = params.get('session_token');
+            if (sessionToken) {
+                localStorage.setItem('session_token', sessionToken);
+                localStorage.setItem('auth_token', sessionToken); // Ensure Header detects token
+                console.log('Login.jsx: session_token set:', sessionToken);
+                // Fetch user profile
+                axios.get('/auth/me', {
+                    headers: {
+                        'Authorization': `Bearer ${sessionToken}`
+                    }
+                })
+                .then(res => {
+                    console.log('Login.jsx: /auth/me response:', res.data);
+                    localStorage.setItem('auth_user', JSON.stringify(res.data.user));
+                    setToast({ show: true, message: 'Login successful with Google!', type: 'success' });
+                    setTimeout(() => navigate('/', { replace: true }), 1000);
+                })
+                .catch(err => {
+                    console.error('Login.jsx: Error fetching user after OAuth:', err);
+                    setToast({ show: true, message: 'Failed to complete Google login', type: 'error' });
+                    setTimeout(() => navigate('/login'), 1500);
+                });
+            }
+        }
+    }, [navigate]);
 
     return (
         <div className="login-page">
@@ -167,7 +221,7 @@ const Login = () => {
                                 <span>or</span>
                             </div>
 
-                            <button type="button" className="google-btn">
+                            <button type="button" className="google-btn" onClick={handleGoogleLogin}>
                                 <span className="google-icon">🔍</span>
                                 Continue with Google
                             </button>
@@ -185,6 +239,13 @@ const Login = () => {
                     </div>
                 </div>
             </div>
+            {toast.show && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast({ ...toast, show: false })}
+                />
+            )}
         </div>
     );
 };

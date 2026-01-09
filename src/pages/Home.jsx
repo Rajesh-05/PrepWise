@@ -20,7 +20,7 @@ const Home = () => {
             icon: '📄',
             description: 'Create ATS-optimized resumes with AI suggestions and professional templates',
             category: 'Resume Tools',
-            route: '/',
+            route: '/resume-builder',
             color: '#f093fb',
             gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
         },
@@ -40,7 +40,7 @@ const Home = () => {
             icon: '📊',
             description: 'Track your improvement with detailed insights and personalized recommendations',
             category: 'Analytics',
-            route: '/',
+            route: '/dashboard',
             color: '#43e97b',
             gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
         },
@@ -189,6 +189,8 @@ const Home = () => {
                             if (feature.name === 'Company Question Bank') link = '/question-bank';
                             else if (feature.name === 'Job Matching') link = '/job-finder';
                             else if (feature.name === 'Mock Interviews') link = '/mock-interview';
+                            else if (feature.name === 'Smart Resume Builder') link = '/resume-builder';
+                            else if (feature.name === 'Progress Analytics') link = '/dashboard';
 
                             return (
                                 <Link key={feature.id} to={link || feature.route || '#'} className="feature-link" style={{ textDecoration: 'none' }}>
@@ -202,7 +204,7 @@ const Home = () => {
                                         <h3>{feature.name}</h3>
                                         <p>{feature.description}</p>
                                         <div className="feature-action">
-                                            <span>Explore Usage</span>
+                                            <span>Explore Now</span>
                                             <span className="arrow">→</span>
                                         </div>
                                         <div className="feature-glow"></div>

@@ -110,9 +110,6 @@ CERTIFICATIONS & AWARDS
 [CERTIFICATIONS]`
 };
 
-// Load Gemini API key from environment variable
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
-
 const ResumeBuilder = () => {
   const [jobDescription, setJobDescription] = useState('');
   const [template, setTemplate] = useState('modern');
@@ -120,16 +117,10 @@ const ResumeBuilder = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
-  const resumePreviewRef = useRef(null);
 
   const generateResume = async () => {
     if (!jobDescription.trim()) {
       setError('Please enter a job description');
-      return;
-    }
-
-    if (!GEMINI_API_KEY) {
-      setError('Gemini API key is not configured. Please add REACT_APP_GEMINI_API_KEY to your .env file');
       return;
     }
 
@@ -138,67 +129,27 @@ const ResumeBuilder = () => {
     setGeneratedResume('');
 
     try {
-      const selectedTemplate = TEMPLATES[template];
-
-      const prompt = `You are an expert ATS (Applicant Tracking System) resume writer. Your task is to create a highly optimized resume that will pass ATS screening and appeal to hiring managers.
-
-JOB DESCRIPTION:
-${jobDescription}
-
-USER DATA:
-${JSON.stringify(USER_DATA, null, 2)}
-
-RESUME TEMPLATE:
-${selectedTemplate}
-
-INSTRUCTIONS:
-1. Analyze the job description and identify key requirements, skills, and keywords
-2. Match the user's experience and skills to the job requirements
-3. Use action verbs and quantifiable achievements
-4. Incorporate relevant keywords from the job description naturally
-5. Format the resume to be ATS-friendly (simple formatting, no tables, standard section headers)
-6. Fill in the template placeholders with optimized content:
-   - [NAME], [EMAIL], [PHONE], etc. with user's contact info
-   - [SUMMARY] with a compelling 2-3 sentence summary tailored to the JD
-   - [SKILLS] as a comma-separated list or bullet points of relevant skills
-   - [EXPERIENCE] with formatted job entries highlighting relevant achievements
-   - [EDUCATION] with degree information
-   - [CERTIFICATIONS] if applicable
-7. Ensure all content is truthful to the user's data but optimized for impact
-8. Keep the resume to only 1 page worth of content
-
-Generate the complete, ATS-optimized resume. Output ONLY the resume text, no explanations or metadata.`;
-
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: prompt
-              }]
-            }],
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 2048,
-            }
-          })
-        }
-      );
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+      const response = await fetch('http://localhost:5000/generate-resume', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          jobDescription: jobDescription,
+          template: template,
+          userData: USER_DATA
+        })
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'Failed to generate resume');
+        throw new Error(errorData.error || 'Failed to generate resume');
       }
 
       const data = await response.json();
-      const resume = data.candidates[0].content.parts[0].text;
-      setGeneratedResume(resume);
-      console.log(resume);
+      setGeneratedResume(data.resume);
       
     } catch (err) {
       setError(err.message || 'An error occurred while generating the resume');

@@ -44,8 +44,12 @@ const ResumeEvaluator = () => {
                 }
                 formData.append('job_description', jdFile);
             }
+            const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
             const res = await fetch('http://localhost:5000/evaluate-resume', {
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
                 body: formData
             });
             if (!res.ok) {
@@ -76,8 +80,12 @@ const ResumeEvaluator = () => {
             }
             const formData = new FormData();
             formData.append('file', improveResumeFile);
+            const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
             const res = await fetch('http://localhost:5000/improve-resume', {
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
                 body: formData
             });
             if (!res.ok) {
