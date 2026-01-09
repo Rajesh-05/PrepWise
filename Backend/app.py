@@ -1,14 +1,10 @@
-import asyncio
 import logging
 import os
-import threading
 from dotenv import load_dotenv
-import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import time
 import math
-import fitz  
 import tempfile
 import requests
 import pdfplumber
@@ -18,7 +14,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
-from google import genai
 
 app = Flask(__name__)
 CORS(app)
@@ -125,11 +120,6 @@ if MONGODB_URI:
         print(f"Warning: Failed to initialize MongoDB: {e}")
 else:
     print("Warning: MONGODB_URI not set. Auth endpoints will return 503.")
-client = genai.Client(api_key=API_KEY)
-
-# Use Gemini 1.5 Flash - FREE TIER with 15 RPM and 1M tokens/day
-# This model supports text and audio, and has generous free quota
-model = "models/gemini-1.5-flash"
 
 
 # ---------------------------------------------------------------------------
