@@ -5,10 +5,10 @@ import threading
 from dotenv import load_dotenv
 import json
 from flask import Flask, request, jsonify, redirect, send_from_directory
+import logging
 from flask_cors import CORS
 import time
 import math
-import fitz  
 import tempfile
 import requests
 import pdfplumber
@@ -506,11 +506,6 @@ if MONGODB_URI:
         print(f"Warning: Failed to initialize MongoDB: {e}")
 else:
     print("Warning: MONGODB_URI not set. Auth endpoints will return 503.")
-client = genai.Client(api_key=API_KEY)
-
-# Use Gemini 1.5 Flash - FREE TIER with 15 RPM and 1M tokens/day
-# This model supports text and audio, and has generous free quota
-model = "models/gemini-1.5-flash"
 
 
 # ---------------------------------------------------------------------------
@@ -701,8 +696,7 @@ def create_vapi_assistant():
                     "language": "en-US"
                 }
             },
-            timeout=10,
-            verify=False
+            timeout=10
         )
         if response.status_code != 201:
             print("Vapi API error status:", response.status_code)
