@@ -44,7 +44,11 @@ const JobFinder = () => {
             setLoading(true);
             setError('');
             fetch(
-                `/api/jobs?query=${encodeURIComponent(debouncedFilters.query)}&location=${encodeURIComponent(debouncedFilters.location)}&num_jobs=10`
+                `/api/jobs?query=${encodeURIComponent(debouncedFilters.query)}&location=${encodeURIComponent(debouncedFilters.location)}&num_jobs=10`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('auth_token') || localStorage.getItem('session_token')}`
+                    }
+                }
             )
                 .then((res) => res.json())
                 .then((data) => {
