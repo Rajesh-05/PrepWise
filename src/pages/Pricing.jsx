@@ -55,6 +55,40 @@ const plans = [
 
 const Pricing = () => {
   const [selected, setSelected] = useState('Free');
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const handlePlanSelect = async (planName) => {
+    setSelected(planName);
+    setSubmitting(true);
+    setMessage('');
+    // Simulate subscription details
+    const tier = planName.toLowerCase();
+    const now = new Date();
+    const start_date = now.toISOString();
+    const end_date = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString();
+    const status = 'active';
+    const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+    try {
+      const res = await fetch('/api/subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ tier, start_date, end_date, status })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMessage(`Subscription updated: ${planName}`);
+      } else {
+        setMessage(data.error || 'Failed to update subscription');
+      }
+    } catch (e) {
+      setMessage('Network error');
+    }
+    setSubmitting(false);
+  };
   return (
     <div className="pricing-page">
       <h2 className="pricing-title">Choose Your Plan</h2>
@@ -63,7 +97,7 @@ const Pricing = () => {
           <div
             className={`pricing-card${selected === plan.name ? ' selected' : ''}`}
             key={plan.name}
-            onClick={() => setSelected(plan.name)}
+            onClick={() => handlePlanSelect(plan.name)}
             style={selected === plan.name ? {
               cursor: 'pointer',
               border: '3px solid #10b981',
@@ -93,9 +127,9 @@ const Pricing = () => {
                 color: '#fff',
                 fontWeight: 700
               } : undefined}
-              disabled={selected === plan.name}
+              disabled={submitting}
             >
-              {selected === plan.name ? '✔ Selected' : plan.button}
+              {selected === plan.name ? (submitting ? 'Updating...' : '✔ Selected') : plan.button}
             </button>
           </div>
         ))}
@@ -104,6 +138,7 @@ const Pricing = () => {
         {selected === 'Free' && 'You have selected the Free plan. Enjoy limited access to PrepWise features.'}
         {selected === 'Starter' && 'You have selected the Starter plan. Unlock more resume tools and templates.'}
         {selected === 'Unlimited' && 'You have selected the Unlimited plan. Enjoy full access and priority support!'}
+        {message && <div style={{marginTop: '1rem', color: '#6366f1'}}>{message}</div>}
       </div>
     </div>
   );
