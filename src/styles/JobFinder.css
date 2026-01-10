@@ -321,11 +321,48 @@
     color: #64748b;
 }
 
-/* Refresh button container styles */
+/* Filters footer with Refresh and Submit buttons */
+.filters-footer {
+    margin-top: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+/* Refresh button container styles (deprecated, use filters-footer) */
 .refresh-container {
     display: flex;
     justify-content: flex-end;
     margin-top: 12px;
+}
+
+/* Submit button styling - green */
+.submit-btn {
+    flex: 1;
+    padding: 10px 18px;
+    background: linear-gradient(90deg, #4cd078 0%, #019075 100%);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(67, 233, 123, 0.12);
+}
+
+.submit-btn:hover {
+    background: linear-gradient(90deg, #019075 0%, #48eb7e 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(67, 233, 123, 0.18);
+}
+
+/* Update Refresh button to match filters-footer layout */
+.filters-footer .refresh-btn {
+    flex: 1;
+    margin: 0;
+    padding: 10px 18px;
+    font-weight: 600;
 }
 
 /* Job details modal styles */

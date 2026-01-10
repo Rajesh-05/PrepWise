@@ -23,11 +23,31 @@
 }
 
 .dashboard-profile-pic {
-    width: 80px;
-    height: 80px;
+    width: 110px;
+    height: 110px;
     border-radius: 50%;
     border: 4px solid rgba(255, 255, 255, 0.3);
     object-fit: cover;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3.5rem;
+    background: #f0f4fa;
+    overflow: hidden;
+    position: relative;
+}
+
+.avatar-placeholder {
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    background: #e3eafc;
+    color: #7a8cff;
+    font-size: 3.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
 }
 
 .user-welcome h1 {

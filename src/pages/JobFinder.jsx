@@ -1,79 +1,106 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import '../styles/JobFinder.css';
 import JobFilters from '../components/JobFilters';
 import JobCard from '../components/JobCard';
 import JobDetails from '../components/JobDetails';
-
-// Debounce hook
-function useDebounce(value, delay) {
-    const [debounced, setDebounced] = useState(value);
-    useEffect(() => {
-        const handler = setTimeout(() => setDebounced(value), delay);
-        return () => clearTimeout(handler);
-    }, [value, delay]);
-    return debounced;
-}
 
 const JobFinder = () => {
         const [filters, setFilters] = useState({ query: '', location: '', mode: '', salary: '', duration: '', skills: '' });
         const [jobs, setJobs] = useState([]);
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState('');
-        const [refreshKey, setRefreshKey] = useState(0);
         const [selectedJob, setSelectedJob] = useState(null);
 
-        // Debounce filters for API call
-        const debouncedFilters = useDebounce(filters, 600);
+        // Handle Reset
+        const handleReset = () => {
+            setFilters({ query: '', location: '', mode: '', salary: '', duration: '', skills: '' });
+            setJobs([]);
+            setError('');
+        };
 
-        // Cache jobs in sessionStorage
-        useEffect(() => {
-            const cacheKey = JSON.stringify(debouncedFilters);
-            const cached = sessionStorage.getItem('jobfinder:' + cacheKey);
-            if (cached) {
-                setJobs(JSON.parse(cached));
-                setError('');
-                setLoading(false);
-                return;
-            }
-            if (!debouncedFilters.query) {
-                setJobs([]);
-                setError('');
-                setLoading(false);
+        // Handle Submit - Fetch jobs
+        const handleSubmit = async () => {
+            if (!filters.query) {
+                setError('Please enter a search query');
                 return;
             }
             setLoading(true);
             setError('');
-            fetch(
-                `/api/jobs?query=${encodeURIComponent(debouncedFilters.query)}&location=${encodeURIComponent(debouncedFilters.location)}&num_jobs=10`, {
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('auth_token') || localStorage.getItem('session_token')}`
+            try {
+                const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+                const res = await fetch(
+                    `/api/jobs?query=${encodeURIComponent(filters.query)}&location=${encodeURIComponent(filters.location)}&num_jobs=10`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
                     }
-                }
-            )
-                .then((res) => res.json())
-                .then((data) => {
+                );
+                const data = await res.json();
+                console.log('API Response:', data); // Debug log
+                if (res.ok) {
                     if (data.error) {
                         setError(data.error);
                         setJobs([]);
+                    } else if (data.jobs && data.jobs.length > 0) {
+                        setJobs(data.jobs);
                     } else {
-                        setJobs(data.jobs || []);
-                        sessionStorage.setItem('jobfinder:' + cacheKey, JSON.stringify(data.jobs || []));
+                        setError('No jobs found. Try different filters.');
+                        setJobs([]);
                     }
-                })
-                .catch((err) => {
-                    setError('Failed to fetch jobs.');
+                } else {
+                    setError(data.error || 'Failed to fetch jobs');
                     setJobs([]);
-                })
-                .finally(() => setLoading(false));
-        }, [debouncedFilters, refreshKey]);
+                }
+            } catch (err) {
+                console.error('Fetch error:', err); // Debug log
+                setError('Network error. Please try again.');
+                setJobs([]);
+            }
+            setLoading(false);
+        };
 
-        // Manual refresh
-        const handleRefresh = useCallback(() => {
-            setRefreshKey((k) => k + 1);
-            // Clear cache for current filters
-            const cacheKey = JSON.stringify(debouncedFilters);
-            sessionStorage.removeItem('jobfinder:' + cacheKey);
-        }, [debouncedFilters]);
+        // Handle Refresh - Re-fetch with same filters
+        const handleRefresh = async () => {
+            if (!filters.query) {
+                setError('Please enter a search query first');
+                return;
+            }
+            setLoading(true);
+            setError('');
+            try {
+                const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+                const res = await fetch(
+                    `/api/jobs?query=${encodeURIComponent(filters.query)}&location=${encodeURIComponent(filters.location)}&num_jobs=10`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    }
+                );
+                const data = await res.json();
+                console.log('API Response (Refresh):', data); // Debug log
+                if (res.ok) {
+                    if (data.error) {
+                        setError(data.error);
+                        setJobs([]);
+                    } else if (data.jobs && data.jobs.length > 0) {
+                        setJobs(data.jobs);
+                    } else {
+                        setError('No jobs found. Try different filters.');
+                        setJobs([]);
+                    }
+                } else {
+                    setError(data.error || 'Failed to fetch jobs');
+                    setJobs([]);
+                }
+            } catch (err) {
+                console.error('Fetch error (Refresh):', err); // Debug log
+                setError('Network error. Please try again.');
+                setJobs([]);
+            }
+            setLoading(false);
+        };
 
         return (
             <div className="job-finder-page container">
@@ -82,15 +109,16 @@ const JobFinder = () => {
                         <JobFilters 
                             filters={filters} 
                             onChange={setFilters}
-                            onReset={() => setFilters({ query: '', location: '', mode: '', salary: '', duration: '', skills: '' })}
+                            onReset={handleReset}
                             onRefresh={handleRefresh}
+                            onSubmit={handleSubmit}
                         />
                     </div>
                     <div>
                         {loading && <div className="loading-spinner">Loading jobs...</div>}
                         {error && <div className="error">{error}</div>}
-                        {!loading && !error && jobs.length === 0 && debouncedFilters.query && (
-                            <div className="no-jobs">No jobs found. Try changing filters.</div>
+                        {!loading && !error && jobs.length === 0 && (
+                            <div className="no-jobs">Enter a search query and click Submit to find jobs.</div>
                         )}
                         {!loading && !error && jobs.map((job) => (
                             <JobCard 

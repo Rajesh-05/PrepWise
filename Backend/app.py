@@ -449,14 +449,40 @@ def get_jobs():
 	try:
 		if scrape_jobs is None:
 			raise ImportError("jobspy is not installed")
-		jobs = scrape_jobs(
-			site_name=["linkedin", "indeed"],
-			search_term=query,
-			location=location,
-			num_jobs=num_jobs,
-			country=country
-		)
-		jobs_list = jobs.to_dict("records")
+		
+		# Try scraping with Indeed first (more reliable), then LinkedIn
+		jobs_df = None
+		error_messages = []
+		
+		# Try Indeed first
+		try:
+			jobs_df = scrape_jobs(
+				site_name=["indeed"],
+				search_term=query,
+				location=location,
+				results_wanted=num_jobs,
+				country_indeed=country
+			)
+		except Exception as e:
+			error_messages.append(f"Indeed: {str(e)}")
+		
+		# If Indeed failed or returned no results, try LinkedIn
+		if jobs_df is None or len(jobs_df) == 0:
+			try:
+				jobs_df = scrape_jobs(
+					site_name=["linkedin"],
+					search_term=query,
+					location=location,
+					results_wanted=num_jobs
+				)
+			except Exception as e:
+				error_messages.append(f"LinkedIn: {str(e)}")
+		
+		if jobs_df is None or len(jobs_df) == 0:
+			error_msg = "No jobs found. " + "; ".join(error_messages) if error_messages else "Try different search terms or location."
+			return jsonify({"error": error_msg, "jobs": []})
+		
+		jobs_list = jobs_df.to_dict("records")
 		# Replace NaN values with None
 		for job in jobs_list:
 			for key, value in job.items():
@@ -497,7 +523,9 @@ if MONGODB_URI:
         db = mongo_client[MONGODB_DBNAME]
         users_col = db["users"]
         users_col.create_index([("email", ASCENDING)], unique=True)
-        
+        # Attach db and users_col to app for global access
+        app.mongo_db = db
+        app.users_col = users_col
         # Get all collections and create indexes
         collections = get_collections(db)
         create_indexes(db)
@@ -1225,11 +1253,7 @@ def get_activity_log():
         
         activities = list(db['user_activities'].find(query).sort("timestamp", -1).limit(limit))
         
-        # Convert ObjectIds to strings
-        for activity in activities:
-            activity['_id'] = str(activity['_id'])
-            activity['user_id'] = str(activity['user_id'])
-        
+
         return jsonify({"activities": activities})
     except Exception as e:
         return jsonify({"error": f"Server error: {e}"}), 500
@@ -1288,6 +1312,110 @@ def save_chat_message():
     except Exception as e:
         return jsonify({"error": f"Server error: {e}"}), 500
 
+# Dashboard subscription/activity endpoint
+@app.route('/api/dashboard-info', methods=['GET'])
+@require_auth
+def dashboard_info():
+    email = getattr(request, 'user_email', None)
+    db = getattr(app, 'mongo_db', None)
+    if db is None:
+        db = globals().get('db', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+
+    users_col = getattr(app, 'users_col', None)
+    if users_col is None:
+        users_col = db['users']
+    subs_col = db['subscription_info']
+    activities_col = db['user_activities']
+
+    user = users_col.find_one({'email': email}, {'subscription_tier': 1, 'subscription_status': 1, 'subscription_start': 1, 'subscription_end': 1, 'name': 1, 'email': 1})
+    latest_sub = subs_col.find({'email': email}).sort('timestamp', -1).limit(1)
+    sub_details = next(latest_sub, None)
+    recent_activities = list(activities_col.find({'email': email}).sort('timestamp', -1).limit(10))
+
+    # Convert ObjectId fields to strings for user
+    if user and '_id' in user:
+        user['_id'] = str(user['_id'])
+    # Convert ObjectId fields to strings for subscription
+    if sub_details and isinstance(sub_details, dict):
+        if '_id' in sub_details:
+            sub_details['_id'] = str(sub_details['_id'])
+        if 'user_id' in sub_details:
+            sub_details['user_id'] = str(sub_details['user_id'])
+    # Convert ObjectId fields to strings for activities
+    for activity in recent_activities:
+        if '_id' in activity:
+            activity['_id'] = str(activity['_id'])
+        if 'user_id' in activity:
+            activity['user_id'] = str(activity['user_id'])
+
+    # Provide default empty objects for expected frontend keys
+    response = {
+        'user': user,
+        'subscription': sub_details,
+        'activities': recent_activities,
+        'chat_sessions': {'total_sessions': 0, 'total_messages': 0},
+        'job_searches': {'total_searches': 0},
+        'user_info': {'total_logins': 0, 'last_login': None},
+        'question_bank': {'recent_sessions': []},
+        'mock_interviews': {'recent_interviews': []},
+        'resume_activities': {'recent_activities': []},
+        'activity_timeline': []
+    }
+    return jsonify(response)
+# Subscription update endpoint
+@app.route('/api/subscription', methods=['POST'])
+@require_auth
+def update_subscription():
+    data = request.get_json()
+    tier = data.get('tier')
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+    status = data.get('status', 'active')
+    payment_method = data.get('payment_method', '')
+    amount_paid = data.get('amount_paid', 0)
+    transaction_id = data.get('transaction_id', '')
+    auto_renew = data.get('auto_renew', False)
+
+    email = getattr(request, 'user_email', None)
+    db = getattr(app, 'mongo_db', None)
+    if db is None:
+        db = globals().get('db', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+
+    users_col = getattr(app, 'users_col', None)
+    if users_col is None:
+        users_col = db['users']
+    subs_col = db['subscription_info']
+
+    # Update user profile with current subscription tier
+    users_col.update_one({'email': email}, {
+        '$set': {
+            'subscription_tier': tier,
+            'subscription_status': status,
+            'subscription_start': start_date,
+            'subscription_end': end_date
+        }
+    })
+
+    # Insert subscription history record
+    subs_col.insert_one({
+        'email': email,
+        'user_id': users_col.find_one({'email': email})['_id'],
+        'subscription_tier': tier,
+        'payment_status': status,
+        'start_date': start_date,
+        'end_date': end_date,
+        'payment_method': payment_method,
+        'amount_paid': amount_paid,
+        'transaction_id': transaction_id,
+        'auto_renew': auto_renew,
+        'timestamp': datetime.now(timezone.utc)
+    })
+
+    return jsonify({'success': True, 'tier': tier, 'status': status})
 
 # ==================== USER CHAT & PROFILE IMAGE ====================
 from werkzeug.utils import secure_filename
