@@ -1,40 +1,39 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+// import axios from 'axios';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [showActivities, setShowActivities] = useState(true);
     const navigate = useNavigate();
 
     const fetchDashboardData = useCallback(async () => {
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
-        
+        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
         if (!token) {
             navigate('/login');
             return;
         }
-
         try {
-            const response = await axios.get('/api/user/dashboard', {
+            const response = await fetch('/api/dashboard-info', {
+                method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
             });
-            setStats(response.data);
-            setLoading(false);
-        } catch (err) {
-            console.error('Error fetching dashboard:', err);
-            if (err.response?.status === 401) {
-                localStorage.removeItem('auth_token');
-                localStorage.removeItem('session_token');
-                navigate('/login');
+            const data = await response.json();
+            if (response.ok) {
+                setStats(data);
+                setLoading(false);
             } else {
-                setError('Failed to load dashboard data');
+                setError(data.error || 'Failed to load dashboard data');
                 setLoading(false);
             }
+        } catch (err) {
+            setError('Network error');
+            setLoading(false);
         }
     }, [navigate]);
 
@@ -67,55 +66,87 @@ const Dashboard = () => {
         );
     }
 
+    // Clickable stat cards
+    const handleStatClick = (type) => {
+        if (type === 'chat') {
+            navigate('/chat');
+        } else if (type === 'job') {
+            navigate('/job-finder');
+        } else if (type === 'login') {
+            setShowActivities(true);
+        }
+    };
+
     return (
         <div className="dashboard-container">
             <div className="dashboard-header">
                 <div className="user-welcome">
-                    {stats.user_info.picture && (
-                        <img src={stats.user_info.picture} alt="Profile" className="dashboard-profile-pic" />
+                    {stats?.user?.picture ? (
+                        <img src={stats.user.picture} alt="Profile" className="dashboard-profile-pic" />
+                    ) : (
+                        <div className="dashboard-profile-pic avatar-placeholder">👤</div>
                     )}
                     <div>
-                        <h1>Welcome back, {stats.user_info.firstName || stats.user_info.name}!</h1>
-                        <p>Member since {formatDate(stats.user_info.member_since)}</p>
+                        <h1>Welcome back, {stats?.user?.firstName || stats?.user?.name}!</h1>
+                        <p>Email: {stats?.user?.email}</p>
+                        <p>Subscription: <b>{stats?.user?.subscription_tier || 'N/A'}</b></p>
+                        <p>Status: <b>{stats?.user?.subscription_status || 'N/A'}</b></p>
+                        <p>Start: {formatDate(stats?.user?.subscription_start)}</p>
+                        <p>End: {formatDate(stats?.user?.subscription_end)}</p>
                     </div>
                 </div>
                 <div className="subscription-badge">
-                    <span className="tier-badge">{stats.user_info.subscription_tier.toUpperCase()}</span>
+                    <span className="tier-badge" title="Current Plan">{stats?.user?.subscription_tier?.toUpperCase() || 'FREE'}</span>
                 </div>
             </div>
 
-            <div className="stats-grid">
-                <div className="stat-card">
-                    <div className="stat-icon">📝</div>
-                    <div className="stat-content">
-                        <h3>{stats.question_bank.total_sessions}</h3>
-                        <p>Question Bank Sessions</p>
+            <div className="dashboard-section">
+                <h2>Recent Subscription Details</h2>
+                {stats?.subscription ? (
+                    <div className="subscription-details">
+                        <p>Tier: <span className="badge tier-badge">{stats.subscription.subscription_tier}</span></p>
+                        <p>Status: <span className={`badge ${stats.subscription.payment_status === 'active' ? 'badge-success' : 'badge-warning'}`}>{stats.subscription.payment_status}</span></p>
+                        <p>Start: {formatDate(stats.subscription.start_date)}</p>
+                        <p>End: {formatDate(stats.subscription.end_date)}</p>
+                        <p>Amount Paid: <span className="badge badge-info">${stats.subscription.amount_paid || 0}</span></p>
+                        <p>Auto Renew: <span className={`badge ${stats.subscription.auto_renew ? 'badge-success' : 'badge-warning'}`}>{stats.subscription.auto_renew ? 'Yes' : 'No'}</span></p>
                     </div>
-                </div>
+                ) : <p>No subscription history found.</p>}
+            </div>
 
-                <div className="stat-card">
-                    <div className="stat-icon">🎭</div>
-                    <div className="stat-content">
-                        <h3>{stats.mock_interviews.total_interviews}</h3>
-                        <p>Mock Interviews</p>
-                        <span className="sub-stat">
-                            Avg Rating: {stats.mock_interviews.average_rating.toFixed(1)}/10
-                        </span>
-                    </div>
-                </div>
+            <div className="dashboard-section">
+                <h2 style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                    Recent Activity
+                    <button className="toggle-btn" onClick={() => setShowActivities(v => !v)}>
+                        {showActivities ? 'Hide' : 'Show'}
+                    </button>
+                </h2>
+                {showActivities && (
+                    <ul className="activity-list">
+                        {stats?.activities?.length ? stats.activities.map((act, idx) => (
+                            <li key={act._id || idx} className="activity-list-item">
+                                <span className="activity-avatar" title={act.activity_type}>
+                                    {act.activity_type === 'login' && '🔐'}
+                                    {act.activity_type === 'question_bank' && '📝'}
+                                    {act.activity_type === 'mock_interview' && '🎭'}
+                                    {act.activity_type === 'resume_evaluator' && '📄'}
+                                    {act.activity_type === 'resume_builder' && '📝'}
+                                    {act.activity_type === 'chat' && '💬'}
+                                    {act.activity_type === 'job_finder' && '🔍'}
+                                </span>
+                                <span className="activity-main">
+                                    <b>{act.activity_type.replace('_', ' ').toUpperCase()}</b> - {act.activity_name}
+                                    <span className="activity-date">({formatDate(act.timestamp)})</span>
+                                </span>
+                            </li>
+                        )) : <li>No recent activity found.</li>}
+                    </ul>
+                )}
+            </div>
 
-                <div className="stat-card">
-                    <div className="stat-icon">📄</div>
-                    <div className="stat-content">
-                        <h3>{stats.resume_activities.total_evaluations}</h3>
-                        <p>Resume Evaluations</p>
-                        <span className="sub-stat">
-                            Avg ATS Score: {stats.resume_activities.average_ats_score.toFixed(0)}%
-                        </span>
-                    </div>
-                </div>
-
-                <div className="stat-card">
+            {/* Stats Section */}
+            <div className="stats-section stats-grid">
+                <div className="stat-card clickable" onClick={() => handleStatClick('chat')} title="Go to Chat">
                     <div className="stat-icon">💬</div>
                     <div className="stat-content">
                         <h3>{stats.chat_sessions.total_sessions}</h3>
@@ -126,7 +157,7 @@ const Dashboard = () => {
                     </div>
                 </div>
 
-                <div className="stat-card">
+                <div className="stat-card clickable" onClick={() => handleStatClick('job')} title="Go to Job Finder">
                     <div className="stat-icon">🔍</div>
                     <div className="stat-content">
                         <h3>{stats.job_searches.total_searches}</h3>
@@ -134,7 +165,7 @@ const Dashboard = () => {
                     </div>
                 </div>
 
-                <div className="stat-card">
+                <div className="stat-card clickable" onClick={() => handleStatClick('login')} title="Show Login Activities">
                     <div className="stat-icon">🔐</div>
                     <div className="stat-content">
                         <h3>{stats.user_info.total_logins}</h3>
@@ -147,11 +178,11 @@ const Dashboard = () => {
             </div>
 
             <div className="activity-section">
-                <h2>Recent Activity</h2>
+                <h2>Recent Timeline</h2>
                 <div className="activity-timeline">
                     {stats.activity_timeline.slice(0, 10).map((activity, index) => (
                         <div key={index} className="activity-item">
-                            <div className="activity-icon">
+                            <div className="activity-icon" title={activity.activity_type}>
                                 {activity.activity_type === 'login' && '🔐'}
                                 {activity.activity_type === 'question_bank' && '📝'}
                                 {activity.activity_type === 'mock_interview' && '🎭'}
