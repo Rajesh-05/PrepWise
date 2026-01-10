@@ -1329,10 +1329,22 @@ def dashboard_info():
     subs_col = db['subscription_info']
     activities_col = db['user_activities']
 
-    user = users_col.find_one({'email': email}, {'subscription_tier': 1, 'subscription_status': 1, 'subscription_start': 1, 'subscription_end': 1, 'name': 1, 'email': 1})
+    user = users_col.find_one({'email': email}, {
+        'subscription_tier': 1,
+        'subscription_status': 1,
+        'subscription_start': 1,
+        'subscription_end': 1,
+        'name': 1,
+        'email': 1,
+        'picture': 1,
+        'firstName': 1,
+        'total_login_count': 1,
+        'last_login': 1
+    })
     latest_sub = subs_col.find({'email': email}).sort('timestamp', -1).limit(1)
     sub_details = next(latest_sub, None)
     recent_activities = list(activities_col.find({'email': email}).sort('timestamp', -1).limit(10))
+    all_activities = list(activities_col.find({'email': email}))
 
     # Convert ObjectId fields to strings for user
     if user and '_id' in user:
@@ -1350,18 +1362,122 @@ def dashboard_info():
         if 'user_id' in activity:
             activity['user_id'] = str(activity['user_id'])
 
-    # Provide default empty objects for expected frontend keys
+    # Calculate chat sessions and messages
+    chat_sessions = [a for a in all_activities if a.get('activity_type') == 'chat']
+    total_chat_sessions = len(set(a.get('session_id') for a in chat_sessions if a.get('session_id')))
+    total_chat_messages = len(chat_sessions)
+
+    # Calculate job searches and details
+    job_searches = [a for a in all_activities if a.get('activity_type') == 'job_finder']
+    total_job_searches = len(job_searches)
+    # Show recent 5 unique job search queries (by query string, most recent first)
+    seen_queries = set()
+    recent_jobs = []
+    for job in sorted(job_searches, key=lambda x: x.get('timestamp', ''), reverse=True):
+        query = job.get('query', '').strip()
+        if query and query.lower() not in seen_queries:
+            recent_jobs.append({
+                'query': query,
+                'timestamp': job.get('timestamp')
+            })
+            seen_queries.add(query.lower())
+        if len(recent_jobs) >= 5:
+            break
+    job_opened_details = recent_jobs
+    for a in job_searches:
+        job_info = {
+            'timestamp': a.get('timestamp'),
+            'query': a.get('activity_name'),
+            'details': a.get('job_details', {})
+        }
+        job_opened_details.append(job_info)
+
+    # Calculate login info
+    total_logins = user.get('total_login_count', 0) if user else 0
+    last_login = user.get('last_login') if user else None
+
+    # Calculate question bank sessions and details
+    qb_sessions = [a for a in all_activities if a.get('activity_type') == 'question_bank']
+    total_qb_sessions = len(qb_sessions)
+    qb_recent_sessions = []
+    for a in qb_sessions[-5:]:
+        qb_recent_sessions.append({
+            'timestamp': a.get('timestamp'),
+            'company': a.get('company'),
+            'role': a.get('role'),
+            'domain': a.get('domain'),
+            'experience_level': a.get('experience_level'),
+            'difficulty': a.get('difficulty'),
+            'question_type': a.get('question_type'),
+            'num_questions': a.get('num_questions'),
+        })
+
+    # Calculate mock interviews and details
+    mock_interviews = [a for a in all_activities if a.get('activity_type') == 'mock_interview']
+    total_mock_interviews = len(mock_interviews)
+    mock_recent_interviews = []
+    for a in mock_interviews[-5:]:
+        mock_recent_interviews.append({
+            'timestamp': a.get('timestamp'),
+            'interview_type': a.get('interview_type'),
+            'overall_rating': a.get('overall_rating'),
+            'communication_score': a.get('communication_score'),
+            'technical_score': a.get('technical_score'),
+            'confidence_score': a.get('confidence_score'),
+            'feedback': a.get('feedback'),
+        })
+
+    # Calculate resume activities and details
+    resume_activities = [a for a in all_activities if a.get('activity_type') in ['resume_evaluator', 'resume_builder']]
+    total_resume_activities = len(resume_activities)
+    resume_recent_activities = []
+    for a in resume_activities[-5:]:
+        resume_recent_activities.append({
+            'timestamp': a.get('timestamp'),
+            'activity_type': a.get('activity_type'),
+            'ats_score': a.get('ats_score'),
+            'missing_keywords': a.get('missing_keywords'),
+            'suggestions': a.get('suggestions'),
+            'resume_filename': a.get('resume_filename'),
+        })
+
+    # Timeline (most recent 20 activities)
+    activity_timeline = list(activities_col.find({'email': email}).sort('timestamp', -1).limit(20))
+    for activity in activity_timeline:
+        if '_id' in activity:
+            activity['_id'] = str(activity['_id'])
+        if 'user_id' in activity:
+            activity['user_id'] = str(activity['user_id'])
+
     response = {
         'user': user,
         'subscription': sub_details,
         'activities': recent_activities,
-        'chat_sessions': {'total_sessions': 0, 'total_messages': 0},
-        'job_searches': {'total_searches': 0},
-        'user_info': {'total_logins': 0, 'last_login': None},
-        'question_bank': {'recent_sessions': []},
-        'mock_interviews': {'recent_interviews': []},
-        'resume_activities': {'recent_activities': []},
-        'activity_timeline': []
+        'chat_sessions': {
+            'total_sessions': total_chat_sessions,
+            'total_messages': total_chat_messages
+        },
+        'job_searches': {
+            'total_searches': total_job_searches,
+            'recent_jobs': job_opened_details[-5:]
+        },
+        'user_info': {
+            'total_logins': total_logins,
+            'last_login': last_login
+        },
+        'question_bank': {
+            'total_sessions': total_qb_sessions,
+            'recent_sessions': qb_recent_sessions
+        },
+        'mock_interviews': {
+            'total_interviews': total_mock_interviews,
+            'recent_interviews': mock_recent_interviews
+        },
+        'resume_activities': {
+            'total_activities': total_resume_activities,
+            'recent_activities': resume_recent_activities
+        },
+        'activity_timeline': activity_timeline
     }
     return jsonify(response)
 # Subscription update endpoint
