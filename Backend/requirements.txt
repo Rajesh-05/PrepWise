@@ -1,13 +1,15 @@
 flask
 flask-cors
 python-dotenv
-numpy
+numpy>=1.26.4
 sounddevice
 google-genai
 requests
 pdfplumber
 PyMuPDF
 pandas
-jobspy
+python-jobspy
 pymongo[srv]
 PyJWT
+Flask-Dance
+werkzeug

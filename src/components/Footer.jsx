@@ -7,7 +7,7 @@ const Footer = () => {
             <div className="footer-container">
                 <div className="footer-content">
                     <div className="footer-section">
-                        <h3>CareerAI</h3>
+                        <h3>PrepWise.AI</h3>
                         <p>Your AI-powered career companion designed to help you prepare, practice, and land your dream job. From interview prep to resume building, we've got everything you need to succeed.</p>
                     </div>
                     <div className="footer-section">
@@ -48,7 +48,7 @@ const Footer = () => {
                     </div>
                 </div>
                 <div className="footer-bottom">
-                    <p>&copy; 2024 CareerAI. All rights reserved. | Your AI-powered career companion</p>
+                    <p>&copy; 2024 PrepWise.AI. All rights reserved. | Your AI-powered career companion</p>
                 </div>
             </div>
         </footer>

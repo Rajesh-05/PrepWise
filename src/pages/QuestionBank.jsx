@@ -50,9 +50,13 @@ const QuestionBank = () => {
     setLoading(true);
     setError(null);
     try {
+      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
       const res = await fetch('/generate-questions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           company_name: companyName,
           role,
@@ -79,9 +83,13 @@ const QuestionBank = () => {
     setLoading(true);
     setError(null);
     try {
+      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
       const res = await fetch('/generate-questions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           company_name: companyName,
           role,

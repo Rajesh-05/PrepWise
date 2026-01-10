@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import Toast from '../components/Toast';
 import '../styles/Signup.css';
 
 const Signup = () => {
@@ -17,6 +18,7 @@ const Signup = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [errors, setErrors] = useState({});
     const [serverError, setServerError] = useState('');
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
     const navigate = useNavigate();
 
     const handleInputChange = (e) => {
@@ -98,15 +100,38 @@ const Signup = () => {
                 password: formData.password,
                 acceptMarketing: formData.acceptMarketing
             });
-            // On success, navigate to login
-            navigate('/login', { replace: true, state: { signupEmail: formData.email } });
+            // On success, show toast and navigate to login
+            setToast({ show: true, message: 'Account created successfully! Redirecting to login...', type: 'success' });
+            setTimeout(() => navigate('/login', { replace: true, state: { signupEmail: formData.email } }), 1500);
         } catch (err) {
             const msg = err?.response?.data?.error || 'Failed to create account. Please try again.';
             setServerError(msg);
+            setToast({ show: true, message: msg, type: 'error' });
         } finally {
             setIsLoading(false);
         }
     };
+
+    // Google login handler
+    const handleGoogleLogin = () => {
+        window.location.href = '/login/google';
+    };
+
+    // Listen for Google login callback (session_token in URL hash)
+    useEffect(() => {
+        if (window.location.hash.includes('session_token')) {
+            const params = new URLSearchParams(window.location.hash.substring(1));
+            const sessionToken = params.get('session_token');
+            if (sessionToken) {
+                localStorage.setItem('session_token', sessionToken);
+                axios.post('/auto-login', { session_token: sessionToken })
+                    .then(res => {
+                        localStorage.setItem('auth_user', JSON.stringify(res.data.user));
+                        navigate('/', { replace: true });
+                    });
+            }
+        }
+    }, [navigate]);
 
     return (
         <div className="signup-page">
@@ -123,7 +148,7 @@ const Signup = () => {
                     <div className="branding-content">
                         <div className="logo-section">
                             <div className="logo-icon">🚀</div>
-                            <h1>Join CareerAI</h1>
+                            <h1>Join PrepWise</h1>
                             <p>Start your journey to interview success</p>
                         </div>
 
@@ -299,7 +324,7 @@ const Signup = () => {
                                 <span>or</span>
                             </div>
 
-                            <button type="button" className="google-btn">
+                            <button type="button" className="google-btn" onClick={handleGoogleLogin}>
                                 <span className="google-icon">🔍</span>
                                 Continue with Google
                             </button>
@@ -311,6 +336,13 @@ const Signup = () => {
                     </div>
                 </div>
             </div>
+            {toast.show && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast({ ...toast, show: false })}
+                />
+            )}
         </div>
     );
 };
