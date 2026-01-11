@@ -68,32 +68,70 @@
     background: linear-gradient(90deg, rgba(102, 126, 234, 0.08), rgba(102, 126, 234, 0.03));
 }
 
-.conv-delete-btn {
+.conv-actions {
     position: absolute;
     top: 8px;
     right: 8px;
+    display: none;
+    gap: 4px;
+}
+
+.conversation:hover .conv-actions {
+    display: flex;
+}
+
+.conv-edit-btn,
+.conv-delete-btn {
     width: 24px;
     height: 24px;
     border: none;
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
+    background: rgba(102, 126, 234, 0.1);
+    color: #667eea;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 18px;
+    font-size: 14px;
     line-height: 1;
-    display: none;
+    display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.2s ease;
 }
 
-.conversation:hover .conv-delete-btn {
-    display: flex;
+.conv-edit-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+.conv-delete-btn {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    font-size: 18px;
 }
 
 .conv-delete-btn:hover {
     background: #ef4444;
     color: white;
+}
+
+.conv-title-edit {
+    padding-right: 60px;
+}
+
+.conv-title-input {
+    width: 100%;
+    padding: 4px 8px;
+    border: 2px solid #667eea;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    font-family: inherit;
+    outline: none;
+    background: white;
+}
+
+.conv-title-input:focus {
+    border-color: #5a67d8;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 .chat-sidebar-footer {

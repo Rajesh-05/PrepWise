@@ -261,7 +261,9 @@ def update_chat_session(db, user_email, session_id, message, role='user'):
                 "started_at": datetime.now(timezone.utc),
                 "last_message_at": datetime.now(timezone.utc)
             }
-            db['chat_sessions'].insert_one(new_session)
+            result = db['chat_sessions'].insert_one(new_session)
+            # Return the MongoDB _id for the new session
+            return str(result.inserted_id)
         
         return True
     except Exception as e:
