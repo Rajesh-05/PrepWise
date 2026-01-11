@@ -122,8 +122,8 @@ const Header = () => {
                                         <div className="dropdown-user-email">{user.email}</div>
                                     </div>
                                     <div className="dropdown-divider"></div>
-                                    <Link to="/dashboard" className="dropdown-item">Dashboard</Link>
-                                    <Link to="/profile" className="dropdown-item">Profile</Link>
+                                    <Link to="/dashboard" className="dropdown-item" onClick={() => setShowDropdown(false)}>Dashboard</Link>
+                                    <Link to="/profile" className="dropdown-item" onClick={() => setShowDropdown(false)}>Profile</Link>
                                     <div className="dropdown-divider"></div>
                                     <button onClick={handleLogout} className="dropdown-item logout-btn">
                                         Logout
