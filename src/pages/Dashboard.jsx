@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-// import axios from 'axios';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
@@ -9,6 +8,7 @@ const Dashboard = () => {
     const [error, setError] = useState('');
     const [activeDetail, setActiveDetail] = useState(null); // Which stat card is active for details
     const [showModal, setShowModal] = useState(false);
+    const [subscription, setSubscription] = useState(null);
     const navigate = useNavigate();
 
     const fetchDashboardData = useCallback(async () => {
@@ -27,6 +27,7 @@ const Dashboard = () => {
             const data = await response.json();
             if (response.ok) {
                 setStats(data);
+                if (data.subscription) setSubscription(data.subscription);
                 setLoading(false);
             } else {
                 setError(data.error || 'Failed to load dashboard data');
@@ -100,10 +101,21 @@ const Dashboard = () => {
         <div className="dashboard-container">
             <div className="dashboard-header">
                 <div className="user-welcome">
-                    {stats?.user?.picture ? (
+                    {stats?.user?.picture && stats.user.picture.trim() !== '' ? (
                         <img src={stats.user.picture} alt="Profile" className="dashboard-profile-pic" />
                     ) : (
-                        <div className="dashboard-profile-pic avatar-placeholder">👤</div>
+                        <div className="dashboard-profile-pic avatar-placeholder" aria-label="Default profile avatar">
+                            <svg 
+                                className="avatar-icon"
+                                viewBox="0 0 96 96"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                                style={{ width: '90px', height: '90px', display: 'block' }}
+                            >
+                                <circle cx="48" cy="48" r="48" fill="#e5e7eb" />
+                                <path d="M48 52c7.18 0 13-5.82 13-13s-5.82-13-13-13-13 5.82-13 13 5.82 13 13 13zm0 4c-8.84 0-26 4.42-26 13.25V76h52v-6.75C74 60.42 56.84 56 48 56z" fill="#9ca3af" />
+                            </svg>
+                        </div>
                     )}
                     <div>
                         <h1>Welcome back, {stats?.user?.firstName || stats?.user?.name}!</h1>
@@ -112,25 +124,17 @@ const Dashboard = () => {
                         <p>Status: <b>{stats?.user?.subscription_status || 'N/A'}</b></p>
                         <p>Start: {formatDate(stats?.user?.subscription_start)}</p>
                         <p>End: {formatDate(stats?.user?.subscription_end)}</p>
+                        {stats?.subscription && (
+                            <>
+                                <p>Amount Paid: <span className="badge badge-info">${stats.subscription.amount_paid || 0}</span></p>
+                                <p>Auto Renew: <span className={`badge ${stats.subscription.auto_renew ? 'badge-success' : 'badge-warning'}`}>{stats.subscription.auto_renew ? 'Yes' : 'No'}</span></p>
+                            </>
+                        )}
                     </div>
                 </div>
                 <div className="subscription-badge">
                     <span className="tier-badge" title="Current Plan">{stats?.user?.subscription_tier?.toUpperCase() || 'FREE'}</span>
                 </div>
-            </div>
-
-            <div className="dashboard-section">
-                <h2>Recent Subscription Details</h2>
-                {stats?.subscription ? (
-                    <div className="subscription-details">
-                        <p>Tier: <span className="badge tier-badge">{stats.subscription.subscription_tier}</span></p>
-                        <p>Status: <span className={`badge ${stats.subscription.payment_status === 'active' ? 'badge-success' : 'badge-warning'}`}>{stats.subscription.payment_status}</span></p>
-                        <p>Start: {formatDate(stats.subscription.start_date)}</p>
-                        <p>End: {formatDate(stats.subscription.end_date)}</p>
-                        <p>Amount Paid: <span className="badge badge-info">${stats.subscription.amount_paid || 0}</span></p>
-                        <p>Auto Renew: <span className={`badge ${stats.subscription.auto_renew ? 'badge-success' : 'badge-warning'}`}>{stats.subscription.auto_renew ? 'Yes' : 'No'}</span></p>
-                    </div>
-                ) : <p>No subscription history found.</p>}
             </div>
 
 
@@ -182,6 +186,20 @@ const Dashboard = () => {
                     <div className="stat-content" style={{textAlign:'center'}}>
                         <h3 style={{margin:'0',fontSize:'2.1rem',fontWeight:700,color:'#dc2626'}}>{stats.mock_interviews.total_interviews}</h3>
                         <p style={{margin:'0.2rem 0 0.1rem',fontWeight:500}}>Mock Interviews</p>
+                        {/* Show recent mock interview interactions summary */}
+                        {stats.mock_interviews.recent_interviews && stats.mock_interviews.recent_interviews.length > 0 && (
+                            <div style={{marginTop:'0.7rem',textAlign:'left'}}>
+                                <div style={{fontWeight:600, fontSize:'1.05rem', color:'#dc2626', marginBottom:'0.2rem'}}>Recent Interactions:</div>
+                                {stats.mock_interviews.recent_interviews.slice(-3).reverse().map((interview, idx) => (
+                                    <div key={idx} style={{marginBottom:'0.3rem',background:'#fef2f2',padding:'0.4em 0.7em',borderRadius:'8px'}}>
+                                        <div style={{fontWeight:500}}>{interview.interview_type} Interview</div>
+                                        <div style={{fontSize:'0.97em',color:'#64748b'}}>{formatDateTime(interview.timestamp)}</div>
+                                        {interview.overall_rating && <div>Rating: <b>{interview.overall_rating}/10</b></div>}
+                                        {interview.feedback && <div style={{fontStyle:'italic',color:'#7f1d1d'}}>{interview.feedback}</div>}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
                 <div className="stat-card clickable" onClick={() => handleStatClick('resume')} title="Show Resume Activities" style={{cursor:'pointer',background:'linear-gradient(135deg,#f0fdfa 0%,#e0e7ef 100%)',borderRadius:'18px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',padding:'2rem 1.2rem',transition:'transform 0.12s,box-shadow 0.12s',border:'1.5px solid #e2e8f0',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.5rem'}}>
@@ -257,11 +275,15 @@ const Dashboard = () => {
                             <div className="recent-section">
                                 <h3 style={{marginTop:0}}>Login Activities</h3>
                                 <div className="recent-items">
-                                    {stats.activities.filter(a => a.activity_type === 'login').map((act, idx) => (
-                                        <div key={act._id || idx} className="recent-item" style={{padding:'10px 0', borderBottom:'1px solid #e2e8f0'}}>
-                                            <span style={{fontWeight:500, color:'#334155'}}>Login at</span> <span style={{color:'#64748b'}}>{formatDateTime(act.timestamp)}</span>
-                                        </div>
-                                    ))}
+                                    {stats.login_activities && stats.login_activities.length > 0 ? (
+                                        stats.login_activities.map((act, idx) => (
+                                            <div key={act._id || idx} className="recent-item" style={{padding:'10px 0', borderBottom:'1px solid #e2e8f0'}}>
+                                                <span style={{fontWeight:500, color:'#334155'}}>Login at</span> <span style={{color:'#64748b'}}>{formatDateTime(act.timestamp)}</span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="recent-item">No login activities found.</div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -269,13 +291,22 @@ const Dashboard = () => {
                             <div className="recent-section">
                                 <h3>Recent Question Bank Sessions</h3>
                                 <div className="recent-items">
-                                    {stats.question_bank.recent_sessions.map((session, index) => (
-                                        <div key={index} className="recent-item">
-                                            <h4>{session.company} - {session.role}</h4>
-                                            <p>{session.domain} | {session.experience_level} | {session.difficulty} | {session.question_type}</p>
-                                            <span className="timestamp">{formatDate(session.timestamp)}</span>
-                                        </div>
-                                    ))}
+                                    {stats.question_bank.recent_sessions && stats.question_bank.recent_sessions.length > 0 ? (
+                                        stats.question_bank.recent_sessions.map((session, index) => (
+                                            <div key={index} className="recent-item" style={{padding:'12px 0', borderBottom:'1px solid #e2e8f0'}}>
+                                                <h4 style={{margin:'0 0 4px 0', color:'#334155', fontWeight:600}}>
+                                                    question search for
+                                                    <span style={{color:'#0e7490', fontWeight:700}}>
+                                                        {session.company && session.company.trim() !== '' ? ` ${session.company}` : ' [No company specified]'}
+                                                    </span>
+                                                    {session.role ? ` - ${session.role}` : ''}
+                                                </h4>
+                                                <span className="timestamp" style={{color:'#64748b'}}>{formatDate(session.timestamp)}</span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="recent-item">No question bank sessions found.</div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -286,19 +317,28 @@ const Dashboard = () => {
                                     {stats.resume_activities.recent_activities.map((activity, index) => (
                                         <div key={index} className="recent-item" style={{padding:'12px 0', borderBottom:'1px solid #e2e8f0'}}>
                                             <h4 style={{margin:'0 0 4px 0', color:'#334155', fontWeight:600}}>{activity.activity_type.replace('_',' ').toUpperCase()}</h4>
+                                            {activity.resume_filename && (
+                                                <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>File:</span> {activity.resume_filename}</div>
+                                            )}
+                                            {activity.job_description && (
+                                                <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>Job Description:</span> <span style={{whiteSpace:'pre-line'}}>{activity.job_description}</span></div>
+                                            )}
                                             {activity.ats_score !== undefined && activity.ats_score !== null && (
                                                 <div style={{marginBottom:4}}>
                                                     <span style={{fontWeight:500, color:'#0ea5e9'}}>ATS Score:</span> <span style={{fontWeight:600, color: activity.ats_score >= 70 ? '#16a34a' : activity.ats_score >= 40 ? '#f59e42' : '#dc2626'}}>{activity.ats_score}%</span>
                                                 </div>
                                             )}
                                             {activity.suggestions && (
-                                                <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>Suggestions:</span> {activity.suggestions}</div>
+                                                <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>Suggestions:</span> <span style={{whiteSpace:'pre-line'}}>{activity.suggestions}</span></div>
                                             )}
                                             {activity.missing_keywords && Array.isArray(activity.missing_keywords) && activity.missing_keywords.length > 0 && (
                                                 <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>Missing Keywords:</span> {activity.missing_keywords.join(', ')}</div>
                                             )}
-                                            {activity.resume_filename && (
-                                                <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>File:</span> {activity.resume_filename}</div>
+                                            {activity.resume_data && (
+                                                <div style={{marginBottom:4}}>
+                                                    <span style={{fontWeight:500, color:'#64748b'}}>Generated/Improved Resume:</span>
+                                                    <pre style={{background:'#f8fafc',padding:'8px',borderRadius:'8px',marginTop:'4px',overflowX:'auto',fontSize:'0.97em'}}>{activity.resume_data}</pre>
+                                                </div>
                                             )}
                                             <span className="timestamp" style={{color:'#64748b'}}>{formatDateTime(activity.timestamp)}</span>
                                         </div>
@@ -340,7 +380,23 @@ const Dashboard = () => {
                                 <div className="recent-items">
                                     {stats.job_searches.recent_jobs.map((job, index) => (
                                         <div key={index} className="recent-item">
-                                            <h4>{job.query}</h4>
+                                                                                        <h4>
+                                                                                            {(() => {
+                                                                                                // Remove duplicate 'Job search:' if present
+                                                                                                let query = job.query || '';
+                                                                                                if (query.toLowerCase().startsWith('job search:')) {
+                                                                                                    query = query.slice(11).trim();
+                                                                                                }
+                                                                                                const loc = job.details && job.details.location ? job.details.location.trim() : '';
+                                                                                                // If location is empty or 'any', just show the query
+                                                                                                if (!loc || loc.toLowerCase() === 'any') {
+                                                                                                    return query;
+                                                                                                }
+                                                                                                // Otherwise, show query in location
+                                                                                                return `${query} in ${loc}`;
+                                                                                            })()}
+                                                                                            {job.details && !job.details.location && typeof job.details === 'string' && job.details.trim() !== '' ? `: ${job.details}` : ''}
+                                                                                        </h4>
                                             <span className="timestamp">{formatDate(job.timestamp)}</span>
                                         </div>
                                     ))}
@@ -350,6 +406,7 @@ const Dashboard = () => {
                     </div>
                 </div>
             )}
+            {/* Subscription Details card removed as requested */}
         </div>
     );
 };
