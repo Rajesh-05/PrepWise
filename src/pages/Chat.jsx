@@ -336,7 +336,6 @@ const Chat = () => {
         }
     };
 
-    const getTotalMessages = () => conversations.reduce((acc, c) => acc + (c.messages ? c.messages.length : 0), 0);
     const resizeInput = () => {
         if (!inputRef.current) return;
         const ta = inputRef.current;
