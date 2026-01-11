@@ -1,42 +1,14 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import '../styles/Chat.css';
-
-// System prompt for Gemini AI Interview Coach
-const SYSTEM_PROMPT = `You are an expert AI Interview Coach and Career Mentor specialized in helping candidates prepare for technical and behavioral interviews. Your role is to:
-
-**Core Responsibilities:**
-1. Teach and explain technical concepts clearly with examples
-2. Provide practical interview preparation strategies
-3. Share real-world scenarios and case studies
-4. Offer constructive feedback on answers and approaches
-5. Guide candidates through complex problem-solving exercises
-6. Help with behavioral interview preparation using the STAR method
-7. Discuss company-specific interview processes and cultures
-
-**Your Teaching Style:**
-- Break down complex topics into digestible parts
-- Use analogies and real-world examples
-- Provide code snippets or pseudocode when relevant
-- Ask clarifying questions to understand the candidate's level
-- Encourage critical thinking with follow-up questions
-- Be supportive, patient, and motivating
-
-## Your reponse length is strictly limited to 150 words per message. If the topic requires more depth, suggest continuing in the next message.
-
-Keep responses concise, clear, and actionable. Use formatting like bullet points and code blocks when appropriate. Always be encouraging and professional.`;
+// Gemini system prompt and API key (replace with your actual key or use env variable)
+const SYSTEM_PROMPT = "You are an AI Interview Coach. Help the user prepare for interviews, answer questions, and provide feedback.";
+const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "YOUR_GEMINI_API_KEY_HERE";
 
 const Chat = () => {
-    const [conversations, setConversations] = useState([
-        {
-            id: 1,
-            title: 'New Conversation',
-            messages: [],
-            createdAt: new Date(),
-            updatedAt: new Date()
-        }
-    ]);
-    const [activeConversationId, setActiveConversationId] = useState(1);
+    const [conversations, setConversations] = useState([]);
+    const [activeConversationId, setActiveConversationId] = useState(null);
     const [value, setValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -44,8 +16,69 @@ const Chat = () => {
     const inputRef = useRef(null);
     const liveRef = useRef(null);
 
+
+    // Fetch chat sessions from backend on mount, and persist in localStorage
+    useEffect(() => {
+        const fetchChats = async () => {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            if (!token) return;
+            try {
+                const response = await fetch('/api/chat-sessions', {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+                if (response.ok && data.sessions) {
+                    const convs = data.sessions.map((s, idx) => ({
+                        id: s.session_id || idx,
+                        title: s.topic || 'Chat Session',
+                        messages: (s.messages || []).map(m => ({ role: m.role, content: m.content })),
+                        createdAt: s.started_at ? new Date(s.started_at) : new Date(),
+                        updatedAt: s.last_message_at ? new Date(s.last_message_at) : new Date()
+                    }));
+                    setConversations(convs);
+                    localStorage.setItem('chat_conversations', JSON.stringify(convs));
+                    if (convs.length > 0) setActiveConversationId(convs[0].id);
+                } else {
+                    const newConv = {
+                        id: Date.now(),
+                        title: 'New Conversation',
+                        messages: [],
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    };
+                    setConversations([newConv]);
+                    localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
+                    setActiveConversationId(newConv.id);
+                }
+            } catch (err) {
+                // fallback to localStorage if available
+                const local = localStorage.getItem('chat_conversations');
+                if (local) {
+                    const convs = JSON.parse(local);
+                    setConversations(convs);
+                    if (convs.length > 0) setActiveConversationId(convs[0].id);
+                } else {
+                    const newConv = {
+                        id: Date.now(),
+                        title: 'New Conversation',
+                        messages: [],
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    };
+                    setConversations([newConv]);
+                    localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
+                    setActiveConversationId(newConv.id);
+                }
+            }
+        };
+        fetchChats();
+    }, []);
+
+
     const activeConversation = conversations.find(c => c.id === activeConversationId);
-    const messages = activeConversation?.messages || [];
+    // Memoize messages to avoid triggering useEffect on every render
+    const messages = React.useMemo(() => activeConversation?.messages || [], [activeConversation]);
 
     useEffect(() => {
         // Auto-scroll to bottom on new messages
@@ -58,29 +91,6 @@ const Chat = () => {
             liveRef.current.textContent = `Assistant: ${last.content}`;
         }
     }, [messages]);
-
-    useEffect(() => {
-        // Load conversations from localStorage
-        const saved = localStorage.getItem('chat_conversations');
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                setConversations(parsed);
-                if (parsed.length > 0) {
-                    setActiveConversationId(parsed[0].id);
-                }
-            } catch (err) {
-                console.error('Failed to load conversations:', err);
-            }
-        }
-    }, []);
-
-    useEffect(() => {
-        // Save conversations to localStorage
-        if (conversations.length > 0) {
-            localStorage.setItem('chat_conversations', JSON.stringify(conversations));
-        }
-    }, [conversations]);
 
     const createNewConversation = () => {
         const newConv = {
@@ -119,15 +129,19 @@ const Chat = () => {
             content: userMessage
         };
 
-        setConversations(prev => prev.map(conv => 
-            conv.id === activeConversationId 
-                ? { 
-                    ...conv, 
-                    messages: [...conv.messages, newUserMsg],
-                    updatedAt: new Date()
-                } 
-                : conv
-        ));
+        setConversations(prev => {
+            const updated = prev.map(conv =>
+                conv.id === activeConversationId
+                    ? {
+                        ...conv,
+                        messages: [...conv.messages, newUserMsg],
+                        updatedAt: new Date()
+                    }
+                    : conv
+            );
+            localStorage.setItem('chat_conversations', JSON.stringify(updated));
+            return updated;
+        });
 
         // Update conversation title if this is the first message
         if (messages.length === 0) {
@@ -137,11 +151,25 @@ const Chat = () => {
         setIsLoading(true);
 
         try {
-            const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
             
-            if (!GEMINI_API_KEY) {
-                throw new Error('Gemini API key is not configured');
+            if (!token) {
+                throw new Error('User is not authenticated');
             }
+
+            // Save user message to backend
+            await fetch('/api/user/chat-message', {
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${token}`, 
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({
+                    session_id: activeConversationId,
+                    message: userMessage,
+                    role: 'user'
+                })
+            });
 
             // Build conversation history for Gemini
             const conversationHistory = messages.map(msg => ({
@@ -219,6 +247,20 @@ const Chat = () => {
                     } 
                     : conv
             ));
+
+            // Save AI response to backend
+            await fetch('/api/user/chat-message', {
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${token}`, 
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({
+                    session_id: activeConversationId,
+                    message: aiResponse,
+                    role: 'model'
+                })
+            });
 
         } catch (err) {
             console.error('Chat error:', err);
@@ -313,7 +355,7 @@ const Chat = () => {
         formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li class="numbered">$1</li>');
         
         // Bullet points (handle both - and •)
-        formatted = formatted.replace(/^[•\-]\s+(.+)$/gm, '<li>$1</li>');
+        formatted = formatted.replace(/^[•-]\s+(.+)$/gm, '<li>$1</li>');
         
         // Wrap consecutive list items in ul tags
         formatted = formatted.replace(/(<li(?:\s+class="numbered")?>.*?<\/li>\s*)+/g, (match) => {

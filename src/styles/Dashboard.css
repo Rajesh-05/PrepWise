@@ -48,6 +48,15 @@
     align-items: center;
     justify-content: center;
     position: relative;
+    border: 2px solid #cbd5e1;
+    padding: 8px;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+.avatar-placeholder .avatar-icon {
+    width: 90px;
+    height: 90px;
+    display: block;
 }
 
 .user-welcome h1 {

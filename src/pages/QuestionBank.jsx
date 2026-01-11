@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import '../styles/QuestionBank.css';
+import '../styles/JobFinder.css';
 import { FaTimes } from 'react-icons/fa';
 
 const QuestionCard = ({ question, answer, explanation }) => {
@@ -184,7 +185,14 @@ const QuestionBank = () => {
       </div>
 
       <div className="question-results-container">
-        {loading && <div className="loading-big">Loading...</div>}
+        {loading && (
+          <div className="loading-spinner">
+            <div></div><div></div><div></div>
+          </div>
+        )}
+        {!loading && !error && questions.length === 0 && (
+          <div className="no-jobs">Enter filters and click Submit to get questions.</div>
+        )}
         {error && <div className="error">{error}</div>}
         {questions.map(q => (
           <QuestionCard key={q.id} question={q.question || ''} answer={q.answer || ''} explanation={q.explanation || ''} />

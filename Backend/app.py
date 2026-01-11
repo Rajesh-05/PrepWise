@@ -16,6 +16,120 @@ from pymongo import MongoClient, ASCENDING
 from pymongo.errors import DuplicateKeyError
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
+# Import require_auth decorator
+from auth_utils import require_auth
+# ...existing code...
+
+import os
+import asyncio
+import logging
+import threading
+from dotenv import load_dotenv
+import json
+from flask import Flask, request, jsonify, redirect, send_from_directory
+import logging
+from flask_cors import CORS
+import time
+import math
+import tempfile
+import requests
+import pdfplumber
+from pymongo import MongoClient, ASCENDING
+from pymongo.errors import DuplicateKeyError
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
+# ...existing code...
+
+# --- Place new API routes after app = Flask(__name__) ---
+
+# ...existing code...
+
+# Load .env file FIRST before accessing environment variables
+load_dotenv()
+
+app = Flask(__name__)
+CORS(app)
+
+# --- Chat Sessions API ---
+@app.route('/api/chat-sessions', methods=['GET'])
+@require_auth
+def get_chat_sessions():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    sessions = list(db['chat_sessions'].find({'user_id': user['_id']}))
+    for s in sessions:
+        s['_id'] = str(s['_id'])
+        s['user_id'] = str(s['user_id'])
+        for m in s.get('messages', []):
+            if '_id' in m:
+                m['_id'] = str(m['_id'])
+    return jsonify({'sessions': sessions})
+
+# --- V2V Agent Evaluation API ---
+@app.route('/api/v2v-evaluation', methods=['POST'])
+@require_auth
+def save_v2v_evaluation():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    data = request.get_json()
+    score = data.get('score')
+    suggestions = data.get('suggestions')
+    details = data.get('details')
+    timestamp = datetime.now(timezone.utc)
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    eval_doc = {
+        'user_id': user['_id'],
+        'email': email,
+        'score': score,
+        'suggestions': suggestions,
+        'details': details,
+        'timestamp': timestamp
+    }
+    db['v2v_evaluations'].insert_one(eval_doc)
+    return jsonify({'message': 'Evaluation saved'})
+
+@app.route('/api/v2v-evaluations', methods=['GET'])
+@require_auth
+def get_v2v_evaluations():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    evals = list(db['v2v_evaluations'].find({'user_id': user['_id']}))
+    for e in evals:
+        e['_id'] = str(e['_id'])
+        e['user_id'] = str(e['user_id'])
+    return jsonify({'evaluations': evals})
+import os
+import asyncio
+import logging
+import threading
+from dotenv import load_dotenv
+import json
+from flask import Flask, request, jsonify, redirect, send_from_directory
+import logging
+from flask_cors import CORS
+import time
+import math
+import tempfile
+import requests
+import pdfplumber
+from pymongo import MongoClient, ASCENDING
+from pymongo.errors import DuplicateKeyError
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 from google import genai
@@ -589,9 +703,17 @@ def get_gemini_resume_improvements(resume_text):
     # Try to extract text candidate safely
     try:
         candidates = resp_json.get("candidates")
-        if not candidates or not isinstance(candidates, list):
-            return {"error": "Gemini response missing 'candidates' field", "raw": resp_json}
-        text = candidates[0]["content"]["parts"][0]["text"]
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return {"error": "Gemini response missing or empty 'candidates' field", "raw": resp_json}
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return {"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return {"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}
+        text = parts[0].get("text")
+        if text is None:
+            return {"error": "Gemini response missing 'text' in first part", "raw": resp_json}
     except Exception as e:
         return {"error": f"Failed to extract text from Gemini response: {e}", "raw": resp_json}
 
@@ -766,7 +888,8 @@ def improve_resume():
             log_resume_activity(
                 db, request.user_email, "improvement", 
                 resume_filename=filename,
-                suggestions=result.get("suggestions")
+                suggestions=result.get("suggestions"),
+                resume_data=result.get("improved_resume") or result.get("improved_text") or result.get("resume_text")
             )
             log_activity(db, request.user_email, "resume_builder", "Resume Improvement Request")
             
@@ -850,7 +973,8 @@ Generate the complete, ATS-optimized resume. Output ONLY the resume text, no exp
             log_resume_activity(
                 db, request.user_email, "generation",
                 job_description=job_description[:500],
-                suggestions=f"Generated resume using {template} template"
+                suggestions=f"Generated resume using {template} template",
+                resume_data=resume_text
             )
             log_activity(db, request.user_email, "resume_builder", "Resume Generation Request")
         
@@ -966,11 +1090,20 @@ def generate_questions():
         json=data,
         timeout=60
     )
-
     try:
         resp_json = response.json()
         candidates = resp_json.get("candidates", [])
-        text = candidates[0]["content"]["parts"][0]["text"]
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'candidates' field", "raw": resp_json}), 500
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return jsonify({"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}), 500
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}), 500
+        text = parts[0].get("text")
+        if text is None:
+            return jsonify({"error": "Gemini response missing 'text' in first part", "raw": resp_json}), 500
 
         # Clean Gemini's markdown fences and control characters
         import re
@@ -985,7 +1118,7 @@ def generate_questions():
         print('Gemini raw response:', repr(text))
         import json
         questions_list = json.loads(text)
-        
+
         # Log the activity to database
         if db is not None:
             log_question_bank_activity(
@@ -994,19 +1127,10 @@ def generate_questions():
             )
             log_activity(db, request.user_email, "question_bank", 
                         f"Generated {num_q} questions for {company}")
-        
+        return jsonify({"questions": questions_list})
     except Exception as e:
-        return jsonify({"error": f"Failed to parse Gemini response: {e}", "raw": text if 'text' in locals() else response.text}), 500
-
-    return jsonify({
-        "company": company,
-        "role": role,
-        "domain": domain,
-        "experience_level": experience,
-        "question_type": qtype,
-        "difficulty": difficulty,
-        "questions": questions_list
-    })
+        print("Failed to parse Gemini response:", e)
+        return jsonify({"error": f"Failed to parse Gemini response: {e}"}), 500
 
 # ---------------------------
 # Auth helpers and endpoints
@@ -1349,12 +1473,17 @@ def dashboard_info():
     # Convert ObjectId fields to strings for user
     if user and '_id' in user:
         user['_id'] = str(user['_id'])
-    # Convert ObjectId fields to strings for subscription
+    # Convert ObjectId fields to strings for subscription and normalize keys for frontend
     if sub_details and isinstance(sub_details, dict):
         if '_id' in sub_details:
             sub_details['_id'] = str(sub_details['_id'])
         if 'user_id' in sub_details:
             sub_details['user_id'] = str(sub_details['user_id'])
+        # Normalize subscription fields for frontend
+        sub_details['tier'] = sub_details.get('subscription_tier', sub_details.get('tier', 'free'))
+        sub_details['status'] = sub_details.get('payment_status', sub_details.get('subscription_status', 'active'))
+        sub_details['start_date'] = sub_details.get('start_date', sub_details.get('subscription_start'))
+        sub_details['end_date'] = sub_details.get('end_date', sub_details.get('subscription_end'))
     # Convert ObjectId fields to strings for activities
     for activity in recent_activities:
         if '_id' in activity:
@@ -1362,10 +1491,26 @@ def dashboard_info():
         if 'user_id' in activity:
             activity['user_id'] = str(activity['user_id'])
 
-    # Calculate chat sessions and messages
-    chat_sessions = [a for a in all_activities if a.get('activity_type') == 'chat']
-    total_chat_sessions = len(set(a.get('session_id') for a in chat_sessions if a.get('session_id')))
-    total_chat_messages = len(chat_sessions)
+    # Calculate chat sessions and messages (from chat_sessions collection)
+    chat_sessions_col = db['chat_sessions']
+    user_obj = users_col.find_one({'email': email})
+    chat_sessions = list(chat_sessions_col.find({'user_id': user_obj['_id']})) if user_obj else []
+    # Convert ObjectId fields in chat_sessions to strings
+    for s in chat_sessions:
+        if '_id' in s:
+            s['_id'] = str(s['_id'])
+        if 'user_id' in s:
+            s['user_id'] = str(s['user_id'])
+        for m in s.get('messages', []):
+            if '_id' in m:
+                m['_id'] = str(m['_id'])
+    total_chat_sessions = len(chat_sessions)
+    total_chat_messages = sum(s.get('message_count', 0) for s in chat_sessions)
+    # V2V evaluations
+    v2v_evals = list(db['v2v_evaluations'].find({'user_id': user_obj['_id']})) if user_obj else []
+    for e in v2v_evals:
+        e['_id'] = str(e['_id'])
+        e['user_id'] = str(e['user_id'])
 
     # Calculate job searches and details
     job_searches = [a for a in all_activities if a.get('activity_type') == 'job_finder']
@@ -1397,19 +1542,20 @@ def dashboard_info():
     last_login = user.get('last_login') if user else None
 
     # Calculate question bank sessions and details
-    qb_sessions = [a for a in all_activities if a.get('activity_type') == 'question_bank']
-    total_qb_sessions = len(qb_sessions)
+    qb_col = db['question_bank_activities']
+    qb_sessions = list(qb_col.find({'user_id': user_obj['_id']}).sort('timestamp', -1).limit(5)) if user_obj else []
+    total_qb_sessions = qb_col.count_documents({'user_id': user_obj['_id']}) if user_obj else 0
     qb_recent_sessions = []
-    for a in qb_sessions[-5:]:
+    for a in qb_sessions:
         qb_recent_sessions.append({
             'timestamp': a.get('timestamp'),
-            'company': a.get('company'),
-            'role': a.get('role'),
-            'domain': a.get('domain'),
-            'experience_level': a.get('experience_level'),
-            'difficulty': a.get('difficulty'),
-            'question_type': a.get('question_type'),
-            'num_questions': a.get('num_questions'),
+            'company': a.get('company', ''),
+            'role': a.get('role', ''),
+            'domain': a.get('domain', ''),
+            'experience_level': a.get('experience_level', ''),
+            'difficulty': a.get('difficulty', ''),
+            'question_type': a.get('question_type', ''),
+            'num_questions': a.get('num_questions', 0),
         })
 
     # Calculate mock interviews and details
@@ -1428,10 +1574,10 @@ def dashboard_info():
         })
 
     # Calculate resume activities and details
-    resume_activities = [a for a in all_activities if a.get('activity_type') in ['resume_evaluator', 'resume_builder']]
+    resume_activities = [a for a in all_activities if a.get('activity_type') in ['resume_evaluator', 'resume_builder', 'improvement', 'generation', 'evaluation']]
     total_resume_activities = len(resume_activities)
     resume_recent_activities = []
-    for a in resume_activities[-5:]:
+    for a in resume_activities:
         resume_recent_activities.append({
             'timestamp': a.get('timestamp'),
             'activity_type': a.get('activity_type'),
@@ -1439,6 +1585,8 @@ def dashboard_info():
             'missing_keywords': a.get('missing_keywords'),
             'suggestions': a.get('suggestions'),
             'resume_filename': a.get('resume_filename'),
+            'resume_data': a.get('resume_data'),
+            'job_description': a.get('job_description'),
         })
 
     # Timeline (most recent 20 activities)
@@ -1449,17 +1597,28 @@ def dashboard_info():
         if 'user_id' in activity:
             activity['user_id'] = str(activity['user_id'])
 
+    # Add all login activities for the frontend
+    login_activities = [a for a in all_activities if a.get('activity_type') == 'login']
+    # Convert ObjectId fields to strings for login_activities
+    for activity in login_activities:
+        if '_id' in activity:
+            activity['_id'] = str(activity['_id'])
+        if 'user_id' in activity:
+            activity['user_id'] = str(activity['user_id'])
+
     response = {
         'user': user,
         'subscription': sub_details,
         'activities': recent_activities,
+        'login_activities': login_activities,
         'chat_sessions': {
             'total_sessions': total_chat_sessions,
-            'total_messages': total_chat_messages
+            'total_messages': total_chat_messages,
+            'sessions': chat_sessions
         },
         'job_searches': {
             'total_searches': total_job_searches,
-            'recent_jobs': job_opened_details[-5:]
+            'recent_jobs': job_opened_details
         },
         'user_info': {
             'total_logins': total_logins,
@@ -1477,6 +1636,7 @@ def dashboard_info():
             'total_activities': total_resume_activities,
             'recent_activities': resume_recent_activities
         },
+        'v2v_evaluations': v2v_evals,
         'activity_timeline': activity_timeline
     }
     return jsonify(response)

@@ -115,7 +115,11 @@ const JobFinder = () => {
                         />
                     </div>
                     <div>
-                        {loading && <div className="loading-spinner">Loading jobs...</div>}
+                                                {loading && (
+                                                    <div className="loading-spinner">
+                                                        <div></div><div></div><div></div>
+                                                    </div>
+                                                )}
                         {error && <div className="error">{error}</div>}
                         {!loading && !error && jobs.length === 0 && (
                             <div className="no-jobs">Enter a search query and click Submit to find jobs.</div>
