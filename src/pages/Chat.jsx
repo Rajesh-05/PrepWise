@@ -12,6 +12,8 @@ const Chat = () => {
     const [value, setValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
+    const [editingConvId, setEditingConvId] = useState(null);
+    const [editingTitle, setEditingTitle] = useState('');
     const listRef = useRef(null);
     const inputRef = useRef(null);
     const liveRef = useRef(null);
@@ -30,7 +32,8 @@ const Chat = () => {
                 const data = await response.json();
                 if (response.ok && data.sessions) {
                     const convs = data.sessions.map((s, idx) => ({
-                        id: s.session_id || idx,
+                        id: s._id || s.session_id || idx,
+                        session_id: s._id || s.session_id || idx,
                         title: s.topic || 'Chat Session',
                         messages: (s.messages || []).map(m => ({ role: m.role, content: m.content })),
                         createdAt: s.started_at ? new Date(s.started_at) : new Date(),
@@ -39,18 +42,8 @@ const Chat = () => {
                     setConversations(convs);
                     localStorage.setItem('chat_conversations', JSON.stringify(convs));
                     if (convs.length > 0) setActiveConversationId(convs[0].id);
-                } else {
-                    const newConv = {
-                        id: Date.now(),
-                        title: 'New Conversation',
-                        messages: [],
-                        createdAt: new Date(),
-                        updatedAt: new Date()
-                    };
-                    setConversations([newConv]);
-                    localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
-                    setActiveConversationId(newConv.id);
                 }
+                // Don't auto-create a conversation - let user click "New" button
             } catch (err) {
                 // fallback to localStorage if available
                 const local = localStorage.getItem('chat_conversations');
@@ -58,18 +51,8 @@ const Chat = () => {
                     const convs = JSON.parse(local);
                     setConversations(convs);
                     if (convs.length > 0) setActiveConversationId(convs[0].id);
-                } else {
-                    const newConv = {
-                        id: Date.now(),
-                        title: 'New Conversation',
-                        messages: [],
-                        createdAt: new Date(),
-                        updatedAt: new Date()
-                    };
-                    setConversations([newConv]);
-                    localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
-                    setActiveConversationId(newConv.id);
                 }
+                // Don't auto-create a conversation on error - let user click "New" button
             }
         };
         fetchChats();
@@ -101,6 +84,7 @@ const Chat = () => {
             updatedAt: new Date()
         };
         setConversations(prev => [newConv, ...prev]);
+        localStorage.setItem('chat_conversations', JSON.stringify([newConv, ...conversations]));
         setActiveConversationId(newConv.id);
     };
 
@@ -158,18 +142,32 @@ const Chat = () => {
             }
 
             // Save user message to backend
-            await fetch('/api/user/chat-message', {
+            const activeConv = conversations.find(c => c.id === activeConversationId);
+            const backendSessionId = activeConv?.session_id || activeConversationId;
+            
+            const userMsgResponse = await fetch('/api/user/chat-message', {
                 method: 'POST',
                 headers: { 
                     'Authorization': `Bearer ${token}`, 
                     'Content-Type': 'application/json' 
                 },
                 body: JSON.stringify({
-                    session_id: activeConversationId,
+                    session_id: backendSessionId,
                     message: userMessage,
                     role: 'user'
                 })
             });
+            
+            const userMsgData = await userMsgResponse.json();
+            
+            // If backend created a new session and returned session_id, update our local conversation
+            if (userMsgData.session_id) {
+                setConversations(prev => prev.map(conv => 
+                    conv.id === activeConversationId 
+                        ? { ...conv, session_id: userMsgData.session_id }
+                        : conv
+                ));
+            }
 
             // Build conversation history for Gemini
             const conversationHistory = messages.map(msg => ({
@@ -248,7 +246,10 @@ const Chat = () => {
                     : conv
             ));
 
-            // Save AI response to backend
+            // Save AI response to backend - use updated session_id if available
+            const finalConv = conversations.find(c => c.id === activeConversationId);
+            const finalBackendSessionId = userMsgData.session_id || finalConv?.session_id || backendSessionId;
+            
             await fetch('/api/user/chat-message', {
                 method: 'POST',
                 headers: { 
@@ -256,7 +257,7 @@ const Chat = () => {
                     'Content-Type': 'application/json' 
                 },
                 body: JSON.stringify({
-                    session_id: activeConversationId,
+                    session_id: finalBackendSessionId,
                     message: aiResponse,
                     role: 'model'
                 })
@@ -280,28 +281,117 @@ const Chat = () => {
         }
     };
 
-    const deleteConversation = (convId) => {
+    const deleteConversation = async (convId) => {
+        const conv = conversations.find(c => c.id === convId);
+        // If this conversation is from backend (has a session_id), delete from backend
+        if (conv && conv.session_id) {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            try {
+                const response = await fetch(`/api/chat-sessions/${conv.session_id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) {
+                    console.error('Failed to delete chat session from backend');
+                    return; // Don't delete from frontend if backend deletion failed
+                }
+            } catch (err) {
+                console.error('Error deleting chat session:', err);
+                return; // Don't delete from frontend if backend deletion failed
+            }
+        }
+        
+        // Delete from frontend
         if (conversations.length === 1) {
             // Don't delete the last conversation, just clear it
-            setConversations([{
-                id: Date.now(),
+            const newId = Date.now();
+            const newConv = {
+                id: newId,
                 title: 'New Conversation',
                 messages: [],
                 createdAt: new Date(),
                 updatedAt: new Date()
-            }]);
-            setActiveConversationId(Date.now());
+            };
+            setConversations([newConv]);
+            localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
+            setActiveConversationId(newId);
         } else {
             const filtered = conversations.filter(c => c.id !== convId);
             setConversations(filtered);
+            localStorage.setItem('chat_conversations', JSON.stringify(filtered));
             if (activeConversationId === convId && filtered.length > 0) {
                 setActiveConversationId(filtered[0].id);
             }
         }
     };
 
-    const clearAllConversations = () => {
-        if (window.confirm('Are you sure you want to clear all conversations?')) {
+    const startEditingTitle = (convId, currentTitle) => {
+        setEditingConvId(convId);
+        setEditingTitle(currentTitle);
+    };
+
+    const cancelEditingTitle = () => {
+        setEditingConvId(null);
+        setEditingTitle('');
+    };
+
+    const saveTitle = async (convId) => {
+        if (!editingTitle.trim()) {
+            cancelEditingTitle();
+            return;
+        }
+
+        const conv = conversations.find(c => c.id === convId);
+        
+        // Update backend if this is a persisted session
+        if (conv && conv.session_id) {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            try {
+                const response = await fetch(`/api/chat-sessions/${conv.session_id}`, {
+                    method: 'PATCH',
+                    headers: { 
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ topic: editingTitle.trim() })
+                });
+                
+                if (!response.ok) {
+                    console.error('Failed to update chat session title in backend');
+                }
+            } catch (err) {
+                console.error('Error updating chat session title:', err);
+            }
+        }
+
+        // Update frontend state
+        const updated = conversations.map(c => 
+            c.id === convId ? { ...c, title: editingTitle.trim() } : c
+        );
+        setConversations(updated);
+        localStorage.setItem('chat_conversations', JSON.stringify(updated));
+        cancelEditingTitle();
+    };
+
+    const clearAllConversations = async () => {
+        if (window.confirm('Are you sure you want to clear all conversations? This cannot be undone.')) {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            
+            // Delete all sessions from backend
+            try {
+                const response = await fetch('/api/chat-sessions', {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!response.ok) {
+                    console.error('Failed to delete all chat sessions from backend');
+                }
+            } catch (err) {
+                console.error('Error deleting all chat sessions:', err);
+            }
+            
+            // Clear frontend state
             const newConv = {
                 id: Date.now(),
                 title: 'New Conversation',
@@ -311,10 +401,11 @@ const Chat = () => {
             };
             setConversations([newConv]);
             setActiveConversationId(newConv.id);
-            localStorage.removeItem('chat_conversations');
+            localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
         }
     };
 
+        const getTotalMessages = () => conversations.reduce((acc, c) => acc + (c.messages ? c.messages.length : 0), 0);
     const resizeInput = () => {
         if (!inputRef.current) return;
         const ta = inputRef.current;
@@ -411,22 +502,65 @@ const Chat = () => {
                             className={`conversation ${conv.id === activeConversationId ? 'active' : ''}`}
                             onClick={() => setActiveConversationId(conv.id)}
                         >
-                            <div className="conv-title">{conv.title}</div>
+                            {editingConvId === conv.id ? (
+                                <div className="conv-title-edit" onClick={(e) => e.stopPropagation()}>
+                                    <input
+                                        type="text"
+                                        value={editingTitle}
+                                        onChange={(e) => setEditingTitle(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                saveTitle(conv.id);
+                                            } else if (e.key === 'Escape') {
+                                                cancelEditingTitle();
+                                            }
+                                        }}
+                                        onBlur={() => saveTitle(conv.id)}
+                                        autoFocus
+                                        className="conv-title-input"
+                                    />
+                                </div>
+                            ) : (
+                                <div 
+                                    className="conv-title"
+                                    onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        startEditingTitle(conv.id, conv.title);
+                                    }}
+                                    title="Double-click to rename"
+                                >
+                                    {conv.title}
+                                </div>
+                            )}
                             <div className="conv-sub">
                                 {conv.messages.length === 0 
                                     ? 'No messages yet' 
                                     : `${conv.messages.length} messages`}
                             </div>
-                            <button 
-                                className="conv-delete-btn"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteConversation(conv.id);
-                                }}
-                                aria-label="Delete conversation"
-                            >
-                                ×
-                            </button>
+                            <div className="conv-actions">
+                                <button 
+                                    className="conv-edit-btn"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        startEditingTitle(conv.id, conv.title);
+                                    }}
+                                    aria-label="Rename conversation"
+                                    title="Rename"
+                                >
+                                    ✏️
+                                </button>
+                                <button 
+                                    className="conv-delete-btn"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteConversation(conv.id);
+                                    }}
+                                    aria-label="Delete conversation"
+                                    title="Delete"
+                                >
+                                    ×
+                                </button>
+                            </div>
                         </li>
                     ))}
                 </ul>
@@ -448,7 +582,13 @@ const Chat = () => {
                 </header> */}
 
                 <div className="message-list" ref={listRef}>
-                    {messages.length === 0 ? (
+                    {!activeConversationId ? (
+                        <div className="chat-welcome">
+                            <div className="welcome-icon">💬</div>
+                            <h3>No Active Conversation</h3>
+                            <p>Click the <strong>"New"</strong> button to start a new conversation with your AI Interview Coach!</p>
+                        </div>
+                    ) : messages.length === 0 ? (
                         <div className="chat-welcome">
                             <div className="welcome-icon">🎯</div>
                             <h3>Welcome to Your AI Interview Coach!</h3>
@@ -510,7 +650,7 @@ const Chat = () => {
                 <form className="chat-input" onSubmit={handleSend}>
                     <textarea
                         ref={inputRef}
-                        placeholder="Ask me anything about interview prep, technical concepts, or career advice..."
+                        placeholder={!activeConversationId ? "Click 'New' to start a conversation..." : "Ask me anything about interview prep, technical concepts, or career advice..."}
                         value={value}
                         onChange={e => { setValue(e.target.value); resizeInput(); }}
                         rows={1}
@@ -525,21 +665,21 @@ const Chat = () => {
                             }
                         }}
                         onInput={resizeInput}
-                        disabled={isLoading}
+                        disabled={isLoading || !activeConversationId}
                     />
                     <div className="chat-input-actions">
                         <button 
                             type="button" 
                             className="btn btn-outline" 
                             onClick={() => setValue('')}
-                            disabled={isLoading}
+                            disabled={isLoading || !activeConversationId}
                         >
                             Clear
                         </button>
                         <button 
                             type="submit" 
                             className={`btn btn-primary ${isLoading ? 'loading' : ''}`} 
-                            disabled={isLoading || !value.trim()}
+                            disabled={isLoading || !value.trim() || !activeConversationId}
                         >
                             {isLoading ? 'Sending...' : 'Send'}
                         </button>

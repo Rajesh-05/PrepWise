@@ -1,3 +1,4 @@
+CLEAN_IMPORTS = True
 import os
 import asyncio
 import logging
@@ -5,7 +6,6 @@ import threading
 from dotenv import load_dotenv
 import json
 from flask import Flask, request, jsonify, redirect, send_from_directory
-import logging
 from flask_cors import CORS
 import time
 import math
@@ -16,33 +16,13 @@ from pymongo import MongoClient, ASCENDING
 from pymongo.errors import DuplicateKeyError
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
-# Import require_auth decorator
-from auth_utils import require_auth
-# ...existing code...
-
-import os
-import asyncio
-import logging
-import threading
-from dotenv import load_dotenv
-import json
-from flask import Flask, request, jsonify, redirect, send_from_directory
-import logging
-from flask_cors import CORS
-import time
-import math
-import tempfile
-import requests
-import pdfplumber
-from pymongo import MongoClient, ASCENDING
-from pymongo.errors import DuplicateKeyError
-from werkzeug.security import generate_password_hash, check_password_hash
-import jwt
-# ...existing code...
-
-# --- Place new API routes after app = Flask(__name__) ---
-
-# ...existing code...
+from auth_utils import (
+    require_auth, verify_token, revoke_token, log_activity,
+    log_question_bank_activity, log_resume_activity, log_mock_interview,
+    log_job_search, get_user_stats
+)
+import auth_utils
+from models import get_collections, create_indexes
 
 # Load .env file FIRST before accessing environment variables
 load_dotenv()
@@ -51,9 +31,9 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Chat Sessions API ---
-@app.route('/api/chat-sessions', methods=['GET'])
+@app.route('/api/chat-sessions/<session_id>', methods=['DELETE'])
 @require_auth
-def get_chat_sessions():
+def delete_chat_session(session_id):
     db = getattr(app, 'mongo_db', None)
     email = getattr(request, 'user_email', None)
     if db is None or email is None:
@@ -61,6 +41,58 @@ def get_chat_sessions():
     user = db['users'].find_one({'email': email})
     if not user:
         return jsonify({'error': 'User not found'}), 404
+    from bson import ObjectId
+    result = db['chat_sessions'].delete_one({'_id': ObjectId(session_id), 'user_id': user['_id']})
+    if result.deleted_count == 1:
+        return jsonify({'message': 'Chat session deleted'})
+    else:
+        return jsonify({'error': 'Chat session not found or not authorized'}), 404
+
+@app.route('/api/chat-sessions/<session_id>', methods=['PATCH'])
+@require_auth
+def update_chat_session(session_id):
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    data = request.get_json()
+    new_topic = data.get('topic', '').strip()
+    
+    if not new_topic:
+        return jsonify({'error': 'Topic cannot be empty'}), 400
+    
+    from bson import ObjectId
+    result = db['chat_sessions'].update_one(
+        {'_id': ObjectId(session_id), 'user_id': user['_id']},
+        {'$set': {'topic': new_topic}}
+    )
+    
+    if result.matched_count == 1:
+        return jsonify({'message': 'Chat session updated', 'topic': new_topic})
+    else:
+        return jsonify({'error': 'Chat session not found or not authorized'}), 404
+
+@app.route('/api/chat-sessions', methods=['GET', 'DELETE'])
+@require_auth
+def handle_chat_sessions():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    if request.method == 'DELETE':
+        # Delete all chat sessions for this user
+        result = db['chat_sessions'].delete_many({'user_id': user['_id']})
+        return jsonify({'message': f'{result.deleted_count} chat sessions deleted'})
+    
+    # GET request
     sessions = list(db['chat_sessions'].find({'user_id': user['_id']}))
     for s in sessions:
         s['_id'] = str(s['_id'])
@@ -112,41 +144,12 @@ def get_v2v_evaluations():
         e['_id'] = str(e['_id'])
         e['user_id'] = str(e['user_id'])
     return jsonify({'evaluations': evals})
-import os
-import asyncio
-import logging
-import threading
-from dotenv import load_dotenv
-import json
-from flask import Flask, request, jsonify, redirect, send_from_directory
-import logging
-from flask_cors import CORS
-import time
-import math
-import tempfile
-import requests
-import pdfplumber
-from pymongo import MongoClient, ASCENDING
-from pymongo.errors import DuplicateKeyError
-from werkzeug.security import generate_password_hash, check_password_hash
-import jwt
+
+# Import datetime, timedelta, timezone for subsequent route usage
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 from google import genai
 from bson import ObjectId
-from auth_utils import (
-    require_auth, verify_token, revoke_token, log_activity,
-    log_question_bank_activity, log_resume_activity, log_mock_interview,
-    log_job_search, update_chat_session, get_user_stats
-)
-from models import get_collections, create_indexes
-
-
-# Load .env file FIRST before accessing environment variables
-load_dotenv()
-
-app = Flask(__name__)
-CORS(app)
 
 
 # Google OAuth Configuration
@@ -537,7 +540,12 @@ def get_jobs():
 		# Log the search activity
 		if db is not None:
 			log_job_search(db, request.user_email, query, location, num_jobs, len(jobs_list))
-			log_activity(db, request.user_email, "job_finder", f"Job search: {query} in {location}")
+			# Format activity name based on whether location is specified
+			if location and location.lower() not in ['any', '', 'none']:
+				activity_name = f"{query} in {location}"
+			else:
+				activity_name = query
+			log_activity(db, request.user_email, "job_finder", activity_name)
 		
 		return jsonify({"jobs": jobs_list})
 	# Map location/country to valid JobSpy country code
@@ -607,7 +615,12 @@ def get_jobs():
 		# Log the search activity
 		if db is not None:
 			log_job_search(db, request.user_email, query, location, num_jobs, len(jobs_list))
-			log_activity(db, request.user_email, "job_finder", f"Job search: {query} in {location}")
+			# Format activity name based on whether location is specified
+			if location and location.lower() not in ['any', '', 'none']:
+				activity_name = f"{query} in {location}"
+			else:
+				activity_name = query
+			log_activity(db, request.user_email, "job_finder", activity_name)
 		
 		return jsonify({"jobs": jobs_list})
 	except Exception as e:
@@ -1421,19 +1434,37 @@ def save_chat_message():
     """
     Save chat messages for session tracking
     """
-    if db is None:
+    # Get database handle from app (preferred) or global fallback
+    current_db = getattr(app, 'mongo_db', None)
+    if current_db is None:
+        current_db = globals().get('db')
+
+    if current_db is None:
         return jsonify({"error": "Database not configured"}), 503
-    
+
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         session_id = data.get('session_id', 'default')
         message = data.get('message', '')
         role = data.get('role', 'user')
+
+        if not message:
+            return jsonify({"error": "Message cannot be empty"}), 400
+
+        result = auth_utils.update_chat_session(current_db, request.user_email, session_id, message, role)
+        if not result:
+            return jsonify({"error": "Failed to update chat session"}), 500
+
+        # If a new session was created, return the MongoDB _id
+        response = {"message": "Chat message saved"}
+        if isinstance(result, str):  # New session created, result is the _id
+            response["session_id"] = result
         
-        update_chat_session(db, request.user_email, session_id, message, role)
-        
-        return jsonify({"message": "Chat message saved"})
+        return jsonify(response)
     except Exception as e:
+        import traceback
+        logging.error(f"Error in save_chat_message: {e}")
+        traceback.print_exc()
         return jsonify({"error": f"Server error: {e}"}), 500
 
 # Dashboard subscription/activity endpoint
@@ -1597,10 +1628,16 @@ def dashboard_info():
         if 'user_id' in activity:
             activity['user_id'] = str(activity['user_id'])
 
-    # Add all login activities for the frontend
+    # Add all login and logout activities for the frontend
     login_activities = [a for a in all_activities if a.get('activity_type') == 'login']
+    logout_activities = [a for a in all_activities if a.get('activity_type') == 'logout']
     # Convert ObjectId fields to strings for login_activities
     for activity in login_activities:
+        if '_id' in activity:
+            activity['_id'] = str(activity['_id'])
+        if 'user_id' in activity:
+            activity['user_id'] = str(activity['user_id'])
+    for activity in logout_activities:
         if '_id' in activity:
             activity['_id'] = str(activity['_id'])
         if 'user_id' in activity:
@@ -1611,6 +1648,7 @@ def dashboard_info():
         'subscription': sub_details,
         'activities': recent_activities,
         'login_activities': login_activities,
+        'logout_activities': logout_activities,
         'chat_sessions': {
             'total_sessions': total_chat_sessions,
             'total_messages': total_chat_messages,
@@ -1636,62 +1674,10 @@ def dashboard_info():
             'total_activities': total_resume_activities,
             'recent_activities': resume_recent_activities
         },
-        'v2v_evaluations': v2v_evals,
-        'activity_timeline': activity_timeline
+        'timeline': activity_timeline
     }
+
     return jsonify(response)
-# Subscription update endpoint
-@app.route('/api/subscription', methods=['POST'])
-@require_auth
-def update_subscription():
-    data = request.get_json()
-    tier = data.get('tier')
-    start_date = data.get('start_date')
-    end_date = data.get('end_date')
-    status = data.get('status', 'active')
-    payment_method = data.get('payment_method', '')
-    amount_paid = data.get('amount_paid', 0)
-    transaction_id = data.get('transaction_id', '')
-    auto_renew = data.get('auto_renew', False)
-
-    email = getattr(request, 'user_email', None)
-    db = getattr(app, 'mongo_db', None)
-    if db is None:
-        db = globals().get('db', None)
-    if db is None or email is None:
-        return jsonify({'error': 'Database or user not found'}), 500
-
-    users_col = getattr(app, 'users_col', None)
-    if users_col is None:
-        users_col = db['users']
-    subs_col = db['subscription_info']
-
-    # Update user profile with current subscription tier
-    users_col.update_one({'email': email}, {
-        '$set': {
-            'subscription_tier': tier,
-            'subscription_status': status,
-            'subscription_start': start_date,
-            'subscription_end': end_date
-        }
-    })
-
-    # Insert subscription history record
-    subs_col.insert_one({
-        'email': email,
-        'user_id': users_col.find_one({'email': email})['_id'],
-        'subscription_tier': tier,
-        'payment_status': status,
-        'start_date': start_date,
-        'end_date': end_date,
-        'payment_method': payment_method,
-        'amount_paid': amount_paid,
-        'transaction_id': transaction_id,
-        'auto_renew': auto_renew,
-        'timestamp': datetime.now(timezone.utc)
-    })
-
-    return jsonify({'success': True, 'tier': tier, 'status': status})
 
 # ==================== USER CHAT & PROFILE IMAGE ====================
 from werkzeug.utils import secure_filename

@@ -164,13 +164,16 @@ const Dashboard = () => {
                         </span>
                     </div>
                 </div>
-                <div className="stat-card clickable" onClick={() => handleStatClick('login')} title="Show Login Activities" style={{cursor:'pointer',background:'linear-gradient(135deg,#f1f5f9 0%,#e0e7ef 100%)',borderRadius:'18px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',padding:'2rem 1.2rem',transition:'transform 0.12s,box-shadow 0.12s',border:'1.5px solid #e2e8f0',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.5rem'}}>
+                <div className="stat-card clickable" onClick={() => handleStatClick('login_logout')} title="Show Login and Logout Activities" style={{cursor:'pointer',background:'linear-gradient(135deg,#f1f5f9 0%,#e0e7ef 100%)',borderRadius:'18px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',padding:'2rem 1.2rem',transition:'transform 0.12s,box-shadow 0.12s',border:'1.5px solid #e2e8f0',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.5rem'}}>
                     <div className="stat-icon" style={{fontSize:'2.2rem',marginBottom:'0.5rem'}}>🔐</div>
                     <div className="stat-content" style={{textAlign:'center'}}>
-                        <h3 style={{margin:'0',fontSize:'2.1rem',fontWeight:700,color:'#334155'}}>{stats.user_info.total_logins}</h3>
-                        <p style={{margin:'0.2rem 0 0.1rem',fontWeight:500}}>Total Logins</p>
+                        <h3 style={{margin:'0',fontSize:'2.1rem',fontWeight:700,color:'#334155'}}>
+                            {stats.user_info.total_logins} / {stats.logout_activities ? stats.logout_activities.length : 0}
+                        </h3>
+                        <p style={{margin:'0.2rem 0 0.1rem',fontWeight:500}}>Total Login / Logout</p>
                         <span className="sub-stat" style={{fontSize:'1rem',color:'#64748b'}}>
-                            Last: {formatDate(stats.user_info.last_login)}
+                            Last Login: {formatDate(stats.user_info.last_login)}<br/>
+                            Last Logout: {stats.logout_activities && stats.logout_activities.length > 0 ? formatDate(stats.logout_activities[0].timestamp) : 'N/A'}
                         </span>
                     </div>
                 </div>
@@ -271,19 +274,36 @@ const Dashboard = () => {
                             cursor: 'pointer',
                             transition: 'background 0.15s',
                         }} onClick={closeModal} aria-label="Close">&times;</button>
-                        {activeDetail === 'login' && (
+                        {activeDetail === 'login_logout' && (
                             <div className="recent-section">
-                                <h3 style={{marginTop:0}}>Login Activities</h3>
+                                <h3 style={{marginTop:0}}>Login & Logout Activities</h3>
                                 <div className="recent-items">
-                                    {stats.login_activities && stats.login_activities.length > 0 ? (
-                                        stats.login_activities.map((act, idx) => (
-                                            <div key={act._id || idx} className="recent-item" style={{padding:'10px 0', borderBottom:'1px solid #e2e8f0'}}>
-                                                <span style={{fontWeight:500, color:'#334155'}}>Login at</span> <span style={{color:'#64748b'}}>{formatDateTime(act.timestamp)}</span>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="recent-item">No login activities found.</div>
-                                    )}
+                                    <div style={{display:'flex',gap:'2rem',flexWrap:'wrap'}}>
+                                        <div style={{flex:'1 1 200px'}}>
+                                            <h4 style={{margin:'0 0 0.5rem'}}>Logins</h4>
+                                            {stats.login_activities && stats.login_activities.length > 0 ? (
+                                                stats.login_activities.map((act, idx) => (
+                                                    <div key={act._id || idx} className="recent-item" style={{padding:'8px 0', borderBottom:'1px solid #e2e8f0'}}>
+                                                        <span style={{fontWeight:500, color:'#334155'}}>Login at</span> <span style={{color:'#64748b'}}>{formatDateTime(act.timestamp)}</span>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="recent-item">No login activities found.</div>
+                                            )}
+                                        </div>
+                                        <div style={{flex:'1 1 200px'}}>
+                                            <h4 style={{margin:'0 0 0.5rem'}}>Logouts</h4>
+                                            {stats.logout_activities && stats.logout_activities.length > 0 ? (
+                                                stats.logout_activities.map((act, idx) => (
+                                                    <div key={act._id || idx} className="recent-item" style={{padding:'8px 0', borderBottom:'1px solid #e2e8f0'}}>
+                                                        <span style={{fontWeight:500, color:'#334155'}}>Logout at</span> <span style={{color:'#64748b'}}>{formatDateTime(act.timestamp)}</span>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="recent-item">No logout activities found.</div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -380,23 +400,7 @@ const Dashboard = () => {
                                 <div className="recent-items">
                                     {stats.job_searches.recent_jobs.map((job, index) => (
                                         <div key={index} className="recent-item">
-                                                                                        <h4>
-                                                                                            {(() => {
-                                                                                                // Remove duplicate 'Job search:' if present
-                                                                                                let query = job.query || '';
-                                                                                                if (query.toLowerCase().startsWith('job search:')) {
-                                                                                                    query = query.slice(11).trim();
-                                                                                                }
-                                                                                                const loc = job.details && job.details.location ? job.details.location.trim() : '';
-                                                                                                // If location is empty or 'any', just show the query
-                                                                                                if (!loc || loc.toLowerCase() === 'any') {
-                                                                                                    return query;
-                                                                                                }
-                                                                                                // Otherwise, show query in location
-                                                                                                return `${query} in ${loc}`;
-                                                                                            })()}
-                                                                                            {job.details && !job.details.location && typeof job.details === 'string' && job.details.trim() !== '' ? `: ${job.details}` : ''}
-                                                                                        </h4>
+                                            <h4>{job.query || 'Job search'}</h4>
                                             <span className="timestamp">{formatDate(job.timestamp)}</span>
                                         </div>
                                     ))}
