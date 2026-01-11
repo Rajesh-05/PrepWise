@@ -1,51 +1,74 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import '../styles/Chat.css';
-
-// System prompt for Gemini AI Interview Coach
-const SYSTEM_PROMPT = `You are an expert AI Interview Coach and Career Mentor specialized in helping candidates prepare for technical and behavioral interviews. Your role is to:
-
-**Core Responsibilities:**
-1. Teach and explain technical concepts clearly with examples
-2. Provide practical interview preparation strategies
-3. Share real-world scenarios and case studies
-4. Offer constructive feedback on answers and approaches
-5. Guide candidates through complex problem-solving exercises
-6. Help with behavioral interview preparation using the STAR method
-7. Discuss company-specific interview processes and cultures
-
-**Your Teaching Style:**
-- Break down complex topics into digestible parts
-- Use analogies and real-world examples
-- Provide code snippets or pseudocode when relevant
-- Ask clarifying questions to understand the candidate's level
-- Encourage critical thinking with follow-up questions
-- Be supportive, patient, and motivating
-
-## Your reponse length is strictly limited to 150 words per message. If the topic requires more depth, suggest continuing in the next message.
-
-Keep responses concise, clear, and actionable. Use formatting like bullet points and code blocks when appropriate. Always be encouraging and professional.`;
+// Gemini system prompt and API key removed - now handled by backend
 
 const Chat = () => {
-    const [conversations, setConversations] = useState([
-        {
-            id: 1,
-            title: 'New Conversation',
-            messages: [],
-            createdAt: new Date(),
-            updatedAt: new Date()
+    // Initialize state from localStorage if available (Instant Load)
+    const [conversations, setConversations] = useState(() => {
+        const local = localStorage.getItem('chat_conversations');
+        return local ? JSON.parse(local) : [];
+    });
+
+    // Set active conversation from initial state if needed
+    const [activeConversationId, setActiveConversationId] = useState(() => {
+        const local = localStorage.getItem('chat_conversations');
+        if (local) {
+            const convs = JSON.parse(local);
+            return convs.length > 0 ? convs[0].id : null;
         }
-    ]);
-    const [activeConversationId, setActiveConversationId] = useState(1);
+        return null;
+    });
+
     const [value, setValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
+    const [editingConvId, setEditingConvId] = useState(null);
+    const [editingTitle, setEditingTitle] = useState('');
     const listRef = useRef(null);
     const inputRef = useRef(null);
     const liveRef = useRef(null);
 
+
+    // Fetch chat sessions from backend on mount, and persist in localStorage
+    useEffect(() => {
+        const fetchChats = async () => {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            if (!token) return;
+            try {
+                const response = await fetch('/api/chat-sessions', {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+                if (response.ok && data.sessions) {
+                    const convs = data.sessions.map((s, idx) => ({
+                        id: s._id || s.session_id || idx,
+                        session_id: s._id || s.session_id || idx,
+                        title: s.topic || 'Chat Session',
+                        messages: (s.messages || []).map(m => ({ role: m.role, content: m.content })),
+                        createdAt: s.started_at ? new Date(s.started_at) : new Date(),
+                        updatedAt: s.last_message_at ? new Date(s.last_message_at) : new Date()
+                    }));
+                    setConversations(convs);
+                    localStorage.setItem('chat_conversations', JSON.stringify(convs));
+
+                    // Only set active if none selected (prevent overriding user selection if they clicked fast)
+                    setActiveConversationId(prev => (prev ? prev : (convs.length > 0 ? convs[0].id : null)));
+                }
+            } catch (err) {
+                console.error("Failed to fetch chats:", err);
+                // Keep existing localStorage data if fetch fails
+            }
+        };
+        fetchChats();
+    }, []);
+
+
     const activeConversation = conversations.find(c => c.id === activeConversationId);
-    const messages = activeConversation?.messages || [];
+    // Memoize messages to avoid triggering useEffect on every render
+    const messages = React.useMemo(() => activeConversation?.messages || [], [activeConversation]);
 
     useEffect(() => {
         // Auto-scroll to bottom on new messages
@@ -59,29 +82,6 @@ const Chat = () => {
         }
     }, [messages]);
 
-    useEffect(() => {
-        // Load conversations from localStorage
-        const saved = localStorage.getItem('chat_conversations');
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                setConversations(parsed);
-                if (parsed.length > 0) {
-                    setActiveConversationId(parsed[0].id);
-                }
-            } catch (err) {
-                console.error('Failed to load conversations:', err);
-            }
-        }
-    }, []);
-
-    useEffect(() => {
-        // Save conversations to localStorage
-        if (conversations.length > 0) {
-            localStorage.setItem('chat_conversations', JSON.stringify(conversations));
-        }
-    }, [conversations]);
-
     const createNewConversation = () => {
         const newConv = {
             id: Date.now(),
@@ -91,16 +91,17 @@ const Chat = () => {
             updatedAt: new Date()
         };
         setConversations(prev => [newConv, ...prev]);
+        localStorage.setItem('chat_conversations', JSON.stringify([newConv, ...conversations]));
         setActiveConversationId(newConv.id);
     };
 
     const updateConversationTitle = (convId, firstMessage) => {
         // Generate a title from the first message
-        const title = firstMessage.length > 30 
-            ? firstMessage.substring(0, 30) + '...' 
+        const title = firstMessage.length > 30
+            ? firstMessage.substring(0, 30) + '...'
             : firstMessage;
-        
-        setConversations(prev => prev.map(conv => 
+
+        setConversations(prev => prev.map(conv =>
             conv.id === convId ? { ...conv, title } : conv
         ));
     };
@@ -119,15 +120,19 @@ const Chat = () => {
             content: userMessage
         };
 
-        setConversations(prev => prev.map(conv => 
-            conv.id === activeConversationId 
-                ? { 
-                    ...conv, 
-                    messages: [...conv.messages, newUserMsg],
-                    updatedAt: new Date()
-                } 
-                : conv
-        ));
+        setConversations(prev => {
+            const updated = prev.map(conv =>
+                conv.id === activeConversationId
+                    ? {
+                        ...conv,
+                        messages: [...conv.messages, newUserMsg],
+                        updatedAt: new Date()
+                    }
+                    : conv
+            );
+            localStorage.setItem('chat_conversations', JSON.stringify(updated));
+            return updated;
+        });
 
         // Update conversation title if this is the first message
         if (messages.length === 0) {
@@ -137,100 +142,69 @@ const Chat = () => {
         setIsLoading(true);
 
         try {
-            const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
-            
-            if (!GEMINI_API_KEY) {
-                throw new Error('Gemini API key is not configured');
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+
+            if (!token) {
+                throw new Error('User is not authenticated');
             }
 
-            // Build conversation history for Gemini
-            const conversationHistory = messages.map(msg => ({
-                role: msg.role,
-                parts: [{ text: msg.content }]
-            }));
+            // Save user message to backend
+            const activeConv = conversations.find(c => c.id === activeConversationId);
+            const backendSessionId = activeConv?.session_id || activeConversationId;
 
-            // Add system context as first user message if this is the start
-            if (conversationHistory.length === 0) {
-                conversationHistory.unshift({
-                    role: 'user',
-                    parts: [{ text: SYSTEM_PROMPT }]
-                });
-                conversationHistory.push({
-                    role: 'model',
-                    parts: [{ text: 'Hello! I\'m your AI Interview Coach. I\'m here to help you prepare for interviews, learn new concepts, and advance your career. What would you like to work on today?' }]
-                });
-            }
-
-            // Add the new user message
-            conversationHistory.push({
-                role: 'user',
-                parts: [{ text: userMessage }]
+            const userMsgResponse = await fetch('/api/user/chat-message', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: backendSessionId,
+                    message: userMessage,
+                    role: 'user'
+                })
             });
 
-            const response = await fetch(
-                 `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        contents: conversationHistory,
-                        generationConfig: {
-                            temperature: 0.7,
-                            topK: 40,
-                            topP: 0.95,
-                            maxOutputTokens: 2048,
-                        },
-                        safetySettings: [
-                            {
-                                category: "HARM_CATEGORY_HARASSMENT",
-                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                            },
-                            {
-                                category: "HARM_CATEGORY_HATE_SPEECH",
-                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                            }
-                        ]
-                    })
-                }
-            );
+            const userMsgData = await userMsgResponse.json();
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || 'Failed to get response from AI');
+            // If backend created a new session and returned session_id, update our local conversation
+            if (userMsgData.session_id) {
+                setConversations(prev => prev.map(conv =>
+                    conv.id === activeConversationId
+                        ? { ...conv, session_id: userMsgData.session_id }
+                        : conv
+                ));
             }
 
-            const data = await response.json();
-            const aiResponse = data.candidates[0].content.parts[0].text;
+            // If backend returned an AI response, add it to the conversation
+            if (userMsgData.assistant_message) {
+                const newAiMsg = {
+                    role: 'model',
+                    content: userMsgData.assistant_message
+                };
 
-            // Add AI response to conversation
-            const newAiMsg = {
-                role: 'model',
-                content: aiResponse
-            };
-
-            setConversations(prev => prev.map(conv => 
-                conv.id === activeConversationId 
-                    ? { 
-                        ...conv, 
-                        messages: [...conv.messages, newAiMsg],
-                        updatedAt: new Date()
-                    } 
-                    : conv
-            ));
+                setConversations(prev => prev.map(conv =>
+                    conv.id === activeConversationId
+                        ? {
+                            ...conv,
+                            messages: [...conv.messages, newAiMsg],
+                            updatedAt: new Date()
+                        }
+                        : conv
+                ));
+            }
 
         } catch (err) {
             console.error('Chat error:', err);
             setError(err.message || 'Failed to send message. Please try again.');
-            
+
             // Remove the user message if there was an error
-            setConversations(prev => prev.map(conv => 
-                conv.id === activeConversationId 
-                    ? { 
-                        ...conv, 
+            setConversations(prev => prev.map(conv =>
+                conv.id === activeConversationId
+                    ? {
+                        ...conv,
                         messages: conv.messages.slice(0, -1)
-                    } 
+                    }
                     : conv
             ));
         } finally {
@@ -238,28 +212,117 @@ const Chat = () => {
         }
     };
 
-    const deleteConversation = (convId) => {
+    const deleteConversation = async (convId) => {
+        const conv = conversations.find(c => c.id === convId);
+        // If this conversation is from backend (has a session_id), delete from backend
+        if (conv && conv.session_id) {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            try {
+                const response = await fetch(`/api/chat-sessions/${conv.session_id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) {
+                    console.error('Failed to delete chat session from backend');
+                    return; // Don't delete from frontend if backend deletion failed
+                }
+            } catch (err) {
+                console.error('Error deleting chat session:', err);
+                return; // Don't delete from frontend if backend deletion failed
+            }
+        }
+
+        // Delete from frontend
         if (conversations.length === 1) {
             // Don't delete the last conversation, just clear it
-            setConversations([{
-                id: Date.now(),
+            const newId = Date.now();
+            const newConv = {
+                id: newId,
                 title: 'New Conversation',
                 messages: [],
                 createdAt: new Date(),
                 updatedAt: new Date()
-            }]);
-            setActiveConversationId(Date.now());
+            };
+            setConversations([newConv]);
+            localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
+            setActiveConversationId(newId);
         } else {
             const filtered = conversations.filter(c => c.id !== convId);
             setConversations(filtered);
+            localStorage.setItem('chat_conversations', JSON.stringify(filtered));
             if (activeConversationId === convId && filtered.length > 0) {
                 setActiveConversationId(filtered[0].id);
             }
         }
     };
 
-    const clearAllConversations = () => {
-        if (window.confirm('Are you sure you want to clear all conversations?')) {
+    const startEditingTitle = (convId, currentTitle) => {
+        setEditingConvId(convId);
+        setEditingTitle(currentTitle);
+    };
+
+    const cancelEditingTitle = () => {
+        setEditingConvId(null);
+        setEditingTitle('');
+    };
+
+    const saveTitle = async (convId) => {
+        if (!editingTitle.trim()) {
+            cancelEditingTitle();
+            return;
+        }
+
+        const conv = conversations.find(c => c.id === convId);
+
+        // Update backend if this is a persisted session
+        if (conv && conv.session_id) {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            try {
+                const response = await fetch(`/api/chat-sessions/${conv.session_id}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ topic: editingTitle.trim() })
+                });
+
+                if (!response.ok) {
+                    console.error('Failed to update chat session title in backend');
+                }
+            } catch (err) {
+                console.error('Error updating chat session title:', err);
+            }
+        }
+
+        // Update frontend state
+        const updated = conversations.map(c =>
+            c.id === convId ? { ...c, title: editingTitle.trim() } : c
+        );
+        setConversations(updated);
+        localStorage.setItem('chat_conversations', JSON.stringify(updated));
+        cancelEditingTitle();
+    };
+
+    const clearAllConversations = async () => {
+        if (window.confirm('Are you sure you want to clear all conversations? This cannot be undone.')) {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+
+            // Delete all sessions from backend
+            try {
+                const response = await fetch('/api/chat-sessions', {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!response.ok) {
+                    console.error('Failed to delete all chat sessions from backend');
+                }
+            } catch (err) {
+                console.error('Error deleting all chat sessions:', err);
+            }
+
+            // Clear frontend state
             const newConv = {
                 id: Date.now(),
                 title: 'New Conversation',
@@ -269,10 +332,11 @@ const Chat = () => {
             };
             setConversations([newConv]);
             setActiveConversationId(newConv.id);
-            localStorage.removeItem('chat_conversations');
+            localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
         }
     };
 
+    const getTotalMessages = () => conversations.reduce((acc, c) => acc + (c.messages ? c.messages.length : 0), 0);
     const resizeInput = () => {
         if (!inputRef.current) return;
         const ta = inputRef.current;
@@ -283,38 +347,38 @@ const Chat = () => {
     const formatMessageContent = (content) => {
         // Enhanced markdown-like formatting for rich text display
         let formatted = content;
-        
+
         // Escape HTML first to prevent XSS
         formatted = formatted
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
-        
+
         // Code blocks with language support
         formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
             return `<pre class="code-block"><code class="language-${lang || 'plaintext'}">${code.trim()}</code></pre>`;
         });
-        
+
         // Inline code
         formatted = formatted.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-        
+
         // Bold
         formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        
+
         // Italic
         formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-        
+
         // Headers
         formatted = formatted.replace(/^### (.+)$/gm, '<h3 class="msg-h3">$1</h3>');
         formatted = formatted.replace(/^## (.+)$/gm, '<h2 class="msg-h2">$1</h2>');
         formatted = formatted.replace(/^# (.+)$/gm, '<h1 class="msg-h1">$1</h1>');
-        
+
         // Numbered lists
         formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li class="numbered">$1</li>');
-        
+
         // Bullet points (handle both - and •)
-        formatted = formatted.replace(/^[•\-]\s+(.+)$/gm, '<li>$1</li>');
-        
+        formatted = formatted.replace(/^[•-]\s+(.+)$/gm, '<li>$1</li>');
+
         // Wrap consecutive list items in ul tags
         formatted = formatted.replace(/(<li(?:\s+class="numbered")?>.*?<\/li>\s*)+/g, (match) => {
             if (match.includes('class="numbered"')) {
@@ -322,34 +386,34 @@ const Chat = () => {
             }
             return `<ul class="msg-list">${match}</ul>`;
         });
-        
+
         // Links
         formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-        
+
         // Blockquotes
         formatted = formatted.replace(/^&gt;\s+(.+)$/gm, '<blockquote>$1</blockquote>');
-        
+
         // Horizontal rule
         formatted = formatted.replace(/^---$/gm, '<hr>');
-        
+
         // Paragraphs (double line break)
         formatted = formatted.replace(/\n\n+/g, '</p><p>');
         formatted = `<p>${formatted}</p>`;
-        
+
         // Clean up empty paragraphs
         formatted = formatted.replace(/<p><\/p>/g, '');
         formatted = formatted.replace(/<p>\s*<\/p>/g, '');
-        
+
         // Single line breaks within paragraphs
         formatted = formatted.replace(/<p>(.*?)<\/p>/gs, (match, content) => {
             // Don't add <br> if content has block elements
-            if (content.includes('<pre>') || content.includes('<ul>') || content.includes('<ol>') || 
+            if (content.includes('<pre>') || content.includes('<ul>') || content.includes('<ol>') ||
                 content.includes('<h1>') || content.includes('<h2>') || content.includes('<h3>')) {
                 return `<p>${content}</p>`;
             }
             return `<p>${content.replace(/\n/g, '<br>')}</p>`;
         });
-        
+
         return formatted;
     };
 
@@ -364,27 +428,70 @@ const Chat = () => {
                 </div>
                 <ul className="conversation-list">
                     {conversations.map(conv => (
-                        <li 
-                            key={conv.id} 
+                        <li
+                            key={conv.id}
                             className={`conversation ${conv.id === activeConversationId ? 'active' : ''}`}
                             onClick={() => setActiveConversationId(conv.id)}
                         >
-                            <div className="conv-title">{conv.title}</div>
+                            {editingConvId === conv.id ? (
+                                <div className="conv-title-edit" onClick={(e) => e.stopPropagation()}>
+                                    <input
+                                        type="text"
+                                        value={editingTitle}
+                                        onChange={(e) => setEditingTitle(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                saveTitle(conv.id);
+                                            } else if (e.key === 'Escape') {
+                                                cancelEditingTitle();
+                                            }
+                                        }}
+                                        onBlur={() => saveTitle(conv.id)}
+                                        autoFocus
+                                        className="conv-title-input"
+                                    />
+                                </div>
+                            ) : (
+                                <div
+                                    className="conv-title"
+                                    onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        startEditingTitle(conv.id, conv.title);
+                                    }}
+                                    title="Double-click to rename"
+                                >
+                                    {conv.title}
+                                </div>
+                            )}
                             <div className="conv-sub">
-                                {conv.messages.length === 0 
-                                    ? 'No messages yet' 
+                                {conv.messages.length === 0
+                                    ? 'No messages yet'
                                     : `${conv.messages.length} messages`}
                             </div>
-                            <button 
-                                className="conv-delete-btn"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteConversation(conv.id);
-                                }}
-                                aria-label="Delete conversation"
-                            >
-                                ×
-                            </button>
+                            <div className="conv-actions">
+                                <button
+                                    className="conv-edit-btn"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        startEditingTitle(conv.id, conv.title);
+                                    }}
+                                    aria-label="Rename conversation"
+                                    title="Rename"
+                                >
+                                    ✏️
+                                </button>
+                                <button
+                                    className="conv-delete-btn"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteConversation(conv.id);
+                                    }}
+                                    aria-label="Delete conversation"
+                                    title="Delete"
+                                >
+                                    ×
+                                </button>
+                            </div>
                         </li>
                     ))}
                 </ul>
@@ -406,7 +513,13 @@ const Chat = () => {
                 </header> */}
 
                 <div className="message-list" ref={listRef}>
-                    {messages.length === 0 ? (
+                    {!activeConversationId ? (
+                        <div className="chat-welcome">
+                            <div className="welcome-icon">💬</div>
+                            <h3>No Active Conversation</h3>
+                            <p>Click the <strong>"New"</strong> button to start a new conversation with your AI Interview Coach!</p>
+                        </div>
+                    ) : messages.length === 0 ? (
                         <div className="chat-welcome">
                             <div className="welcome-icon">🎯</div>
                             <h3>Welcome to Your AI Interview Coach!</h3>
@@ -430,7 +543,7 @@ const Chat = () => {
                                 className={`message ${msg.role === 'user' ? 'user' : 'assistant'}`}
                             >
                                 <div className="message-body">
-                                    <div 
+                                    <div
                                         className="message-text"
                                         dangerouslySetInnerHTML={{ __html: formatMessageContent(msg.content) }}
                                     />
@@ -468,7 +581,7 @@ const Chat = () => {
                 <form className="chat-input" onSubmit={handleSend}>
                     <textarea
                         ref={inputRef}
-                        placeholder="Ask me anything about interview prep, technical concepts, or career advice..."
+                        placeholder={!activeConversationId ? "Click 'New' to start a conversation..." : "Ask me anything about interview prep, technical concepts, or career advice..."}
                         value={value}
                         onChange={e => { setValue(e.target.value); resizeInput(); }}
                         rows={1}
@@ -483,21 +596,21 @@ const Chat = () => {
                             }
                         }}
                         onInput={resizeInput}
-                        disabled={isLoading}
+                        disabled={isLoading || !activeConversationId}
                     />
                     <div className="chat-input-actions">
-                        <button 
-                            type="button" 
-                            className="btn btn-outline" 
+                        <button
+                            type="button"
+                            className="btn btn-outline"
                             onClick={() => setValue('')}
-                            disabled={isLoading}
+                            disabled={isLoading || !activeConversationId}
                         >
                             Clear
                         </button>
-                        <button 
-                            type="submit" 
-                            className={`btn btn-primary ${isLoading ? 'loading' : ''}`} 
-                            disabled={isLoading || !value.trim()}
+                        <button
+                            type="submit"
+                            className={`btn btn-primary ${isLoading ? 'loading' : ''}`}
+                            disabled={isLoading || !value.trim() || !activeConversationId}
                         >
                             {isLoading ? 'Sending...' : 'Send'}
                         </button>

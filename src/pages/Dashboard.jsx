@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-// import axios from 'axios';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [showActivities, setShowActivities] = useState(true);
+    const [activeDetail, setActiveDetail] = useState(null); // Which stat card is active for details
+    const [showModal, setShowModal] = useState(false);
+    const [subscription, setSubscription] = useState(null);
     const navigate = useNavigate();
 
     const fetchDashboardData = useCallback(async () => {
@@ -26,6 +27,7 @@ const Dashboard = () => {
             const data = await response.json();
             if (response.ok) {
                 setStats(data);
+                if (data.subscription) setSubscription(data.subscription);
                 setLoading(false);
             } else {
                 setError(data.error || 'Failed to load dashboard data');
@@ -39,6 +41,10 @@ const Dashboard = () => {
 
     useEffect(() => {
         fetchDashboardData();
+        const interval = setInterval(() => {
+            fetchDashboardData();
+        }, 10000); // Poll every 10 seconds
+        return () => clearInterval(interval);
     }, [fetchDashboardData]);
 
     const formatDate = (dateString) => {
@@ -48,6 +54,16 @@ const Dashboard = () => {
             month: 'short',
             day: 'numeric'
         });
+    };
+
+    const formatDateTime = (dateString) => {
+        if (!dateString) return 'N/A';
+        const d = new Date(dateString);
+        return d.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+        }) + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     };
 
     if (loading) {
@@ -70,21 +86,36 @@ const Dashboard = () => {
     const handleStatClick = (type) => {
         if (type === 'chat') {
             navigate('/chat');
-        } else if (type === 'job') {
-            navigate('/job-finder');
-        } else if (type === 'login') {
-            setShowActivities(true);
+        } else {
+            setActiveDetail(type);
+            setShowModal(true);
         }
+    };
+
+    const closeModal = () => {
+        setShowModal(false);
+        setActiveDetail(null);
     };
 
     return (
         <div className="dashboard-container">
             <div className="dashboard-header">
                 <div className="user-welcome">
-                    {stats?.user?.picture ? (
+                    {stats?.user?.picture && stats.user.picture.trim() !== '' ? (
                         <img src={stats.user.picture} alt="Profile" className="dashboard-profile-pic" />
                     ) : (
-                        <div className="dashboard-profile-pic avatar-placeholder">👤</div>
+                        <div className="dashboard-profile-pic avatar-placeholder" aria-label="Default profile avatar">
+                            <svg 
+                                className="avatar-icon"
+                                viewBox="0 0 96 96"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                                style={{ width: '90px', height: '90px', display: 'block' }}
+                            >
+                                <circle cx="48" cy="48" r="48" fill="#e5e7eb" />
+                                <path d="M48 52c7.18 0 13-5.82 13-13s-5.82-13-13-13-13 5.82-13 13 5.82 13 13 13zm0 4c-8.84 0-26 4.42-26 13.25V76h52v-6.75C74 60.42 56.84 56 48 56z" fill="#9ca3af" />
+                            </svg>
+                        </div>
                     )}
                     <div>
                         <h1>Welcome back, {stats?.user?.firstName || stats?.user?.name}!</h1>
@@ -93,6 +124,12 @@ const Dashboard = () => {
                         <p>Status: <b>{stats?.user?.subscription_status || 'N/A'}</b></p>
                         <p>Start: {formatDate(stats?.user?.subscription_start)}</p>
                         <p>End: {formatDate(stats?.user?.subscription_end)}</p>
+                        {stats?.subscription && (
+                            <>
+                                <p>Amount Paid: <span className="badge badge-info">${stats.subscription.amount_paid || 0}</span></p>
+                                <p>Auto Renew: <span className={`badge ${stats.subscription.auto_renew ? 'badge-success' : 'badge-warning'}`}>{stats.subscription.auto_renew ? 'Yes' : 'No'}</span></p>
+                            </>
+                        )}
                     </div>
                 </div>
                 <div className="subscription-badge">
@@ -100,156 +137,280 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            <div className="dashboard-section">
-                <h2>Recent Subscription Details</h2>
-                {stats?.subscription ? (
-                    <div className="subscription-details">
-                        <p>Tier: <span className="badge tier-badge">{stats.subscription.subscription_tier}</span></p>
-                        <p>Status: <span className={`badge ${stats.subscription.payment_status === 'active' ? 'badge-success' : 'badge-warning'}`}>{stats.subscription.payment_status}</span></p>
-                        <p>Start: {formatDate(stats.subscription.start_date)}</p>
-                        <p>End: {formatDate(stats.subscription.end_date)}</p>
-                        <p>Amount Paid: <span className="badge badge-info">${stats.subscription.amount_paid || 0}</span></p>
-                        <p>Auto Renew: <span className={`badge ${stats.subscription.auto_renew ? 'badge-success' : 'badge-warning'}`}>{stats.subscription.auto_renew ? 'Yes' : 'No'}</span></p>
-                    </div>
-                ) : <p>No subscription history found.</p>}
-            </div>
 
-            <div className="dashboard-section">
-                <h2 style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-                    Recent Activity
-                    <button className="toggle-btn" onClick={() => setShowActivities(v => !v)}>
-                        {showActivities ? 'Hide' : 'Show'}
-                    </button>
-                </h2>
-                {showActivities && (
-                    <ul className="activity-list">
-                        {stats?.activities?.length ? stats.activities.map((act, idx) => (
-                            <li key={act._id || idx} className="activity-list-item">
-                                <span className="activity-avatar" title={act.activity_type}>
-                                    {act.activity_type === 'login' && '🔐'}
-                                    {act.activity_type === 'question_bank' && '📝'}
-                                    {act.activity_type === 'mock_interview' && '🎭'}
-                                    {act.activity_type === 'resume_evaluator' && '📄'}
-                                    {act.activity_type === 'resume_builder' && '📝'}
-                                    {act.activity_type === 'chat' && '💬'}
-                                    {act.activity_type === 'job_finder' && '🔍'}
-                                </span>
-                                <span className="activity-main">
-                                    <b>{act.activity_type.replace('_', ' ').toUpperCase()}</b> - {act.activity_name}
-                                    <span className="activity-date">({formatDate(act.timestamp)})</span>
-                                </span>
-                            </li>
-                        )) : <li>No recent activity found.</li>}
-                    </ul>
-                )}
-            </div>
+            {/* Analytics Section Heading */}
+            <h2 style={{margin:'2.5rem 0 1.2rem 0',fontWeight:700,fontSize:'2.1rem',color:'#0e7490',letterSpacing:'-1px'}}>Your Usage Analytics</h2>
 
-            {/* Stats Section */}
-            <div className="stats-section stats-grid">
-                <div className="stat-card clickable" onClick={() => handleStatClick('chat')} title="Go to Chat">
-                    <div className="stat-icon">💬</div>
-                    <div className="stat-content">
-                        <h3>{stats.chat_sessions.total_sessions}</h3>
-                        <p>Chat Sessions</p>
-                        <span className="sub-stat">
+            {/* Enhanced Stats Section */}
+            <div className="stats-section stats-grid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'2rem',margin:'2.5rem 0'}}>
+                {/* Stat Card Template */}
+                <div className="stat-card clickable" onClick={() => handleStatClick('chat')} title="Go to Chat" style={{cursor:'pointer',background:'linear-gradient(135deg,#f0fdfa 0%,#e0e7ef 100%)',borderRadius:'18px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',padding:'2rem 1.2rem',transition:'transform 0.12s,box-shadow 0.12s',border:'1.5px solid #e2e8f0',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.5rem'}}>
+                    <div className="stat-icon" style={{fontSize:'2.2rem',marginBottom:'0.5rem'}}>💬</div>
+                    <div className="stat-content" style={{textAlign:'center'}}>
+                        <h3 style={{margin:'0',fontSize:'2.1rem',fontWeight:700,color:'#0e7490'}}>{stats.chat_sessions.total_sessions}</h3>
+                        <p style={{margin:'0.2rem 0 0.1rem',fontWeight:500}}>Chat Sessions</p>
+                        <span className="sub-stat" style={{fontSize:'1rem',color:'#64748b'}}>
                             {stats.chat_sessions.total_messages} messages
                         </span>
                     </div>
                 </div>
-
-                <div className="stat-card clickable" onClick={() => handleStatClick('job')} title="Go to Job Finder">
-                    <div className="stat-icon">🔍</div>
-                    <div className="stat-content">
-                        <h3>{stats.job_searches.total_searches}</h3>
-                        <p>Job Searches</p>
-                    </div>
-                </div>
-
-                <div className="stat-card clickable" onClick={() => handleStatClick('login')} title="Show Login Activities">
-                    <div className="stat-icon">🔐</div>
-                    <div className="stat-content">
-                        <h3>{stats.user_info.total_logins}</h3>
-                        <p>Total Logins</p>
-                        <span className="sub-stat">
-                            Last: {formatDate(stats.user_info.last_login)}
+                <div className="stat-card clickable" onClick={() => handleStatClick('job')} title="Show Job Search Activities" style={{cursor:'pointer',background:'linear-gradient(135deg,#fef9c3 0%,#e0e7ef 100%)',borderRadius:'18px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',padding:'2rem 1.2rem',transition:'transform 0.12s,box-shadow 0.12s',border:'1.5px solid #e2e8f0',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.5rem'}}>
+                    <div className="stat-icon" style={{fontSize:'2.2rem',marginBottom:'0.5rem'}}>🔍</div>
+                    <div className="stat-content" style={{textAlign:'center'}}>
+                        <h3 style={{margin:'0',fontSize:'2.1rem',fontWeight:700,color:'#eab308'}}>{stats.job_searches.total_searches}</h3>
+                        <p style={{margin:'0.2rem 0 0.1rem',fontWeight:500}}>Job Searches</p>
+                        <span className="sub-stat" style={{fontSize:'1rem',color:'#64748b'}}>
+                            {stats.job_searches.recent_jobs?.length || 0} recent jobs opened
                         </span>
                     </div>
                 </div>
-            </div>
-
-            <div className="activity-section">
-                <h2>Recent Timeline</h2>
-                <div className="activity-timeline">
-                    {stats.activity_timeline.slice(0, 10).map((activity, index) => (
-                        <div key={index} className="activity-item">
-                            <div className="activity-icon" title={activity.activity_type}>
-                                {activity.activity_type === 'login' && '🔐'}
-                                {activity.activity_type === 'question_bank' && '📝'}
-                                {activity.activity_type === 'mock_interview' && '🎭'}
-                                {activity.activity_type === 'resume_evaluator' && '📄'}
-                                {activity.activity_type === 'resume_builder' && '📝'}
-                                {activity.activity_type === 'chat' && '💬'}
-                                {activity.activity_type === 'job_finder' && '🔍'}
+                <div className="stat-card clickable" onClick={() => handleStatClick('login_logout')} title="Show Login and Logout Activities" style={{cursor:'pointer',background:'linear-gradient(135deg,#f1f5f9 0%,#e0e7ef 100%)',borderRadius:'18px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',padding:'2rem 1.2rem',transition:'transform 0.12s,box-shadow 0.12s',border:'1.5px solid #e2e8f0',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.5rem'}}>
+                    <div className="stat-icon" style={{fontSize:'2.2rem',marginBottom:'0.5rem'}}>🔐</div>
+                    <div className="stat-content" style={{textAlign:'center'}}>
+                        <h3 style={{margin:'0',fontSize:'2.1rem',fontWeight:700,color:'#334155'}}>
+                            {stats.user_info.total_logins} / {stats.logout_activities ? stats.logout_activities.length : 0}
+                        </h3>
+                        <p style={{margin:'0.2rem 0 0.1rem',fontWeight:500}}>Total Login / Logout</p>
+                        <span className="sub-stat" style={{fontSize:'1rem',color:'#64748b'}}>
+                            Last Login: {formatDate(stats.user_info.last_login)}<br/>
+                            Last Logout: {stats.logout_activities && stats.logout_activities.length > 0 ? formatDate(stats.logout_activities[0].timestamp) : 'N/A'}
+                        </span>
+                    </div>
+                </div>
+                <div className="stat-card clickable" onClick={() => handleStatClick('question_bank')} title="Show Question Bank Sessions" style={{cursor:'pointer',background:'linear-gradient(135deg,#f0fdfa 0%,#e0e7ef 100%)',borderRadius:'18px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',padding:'2rem 1.2rem',transition:'transform 0.12s,box-shadow 0.12s',border:'1.5px solid #e2e8f0',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.5rem'}}>
+                    <div className="stat-icon" style={{fontSize:'2.2rem',marginBottom:'0.5rem'}}>📝</div>
+                    <div className="stat-content" style={{textAlign:'center'}}>
+                        <h3 style={{margin:'0',fontSize:'2.1rem',fontWeight:700,color:'#0e7490'}}>{stats.question_bank.total_sessions}</h3>
+                        <p style={{margin:'0.2rem 0 0.1rem',fontWeight:500}}>Question Bank Sessions</p>
+                    </div>
+                </div>
+                <div className="stat-card clickable" onClick={() => handleStatClick('mock')} title="Show Mock Interview Activities" style={{cursor:'pointer',background:'linear-gradient(135deg,#fef2f2 0%,#e0e7ef 100%)',borderRadius:'18px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',padding:'2rem 1.2rem',transition:'transform 0.12s,box-shadow 0.12s',border:'1.5px solid #e2e8f0',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.5rem'}}>
+                    <div className="stat-icon" style={{fontSize:'2.2rem',marginBottom:'0.5rem'}}>🎭</div>
+                    <div className="stat-content" style={{textAlign:'center'}}>
+                        <h3 style={{margin:'0',fontSize:'2.1rem',fontWeight:700,color:'#dc2626'}}>{stats.mock_interviews.total_interviews}</h3>
+                        <p style={{margin:'0.2rem 0 0.1rem',fontWeight:500}}>Mock Interviews</p>
+                        {/* Show recent mock interview interactions summary */}
+                        {stats.mock_interviews.recent_interviews && stats.mock_interviews.recent_interviews.length > 0 && (
+                            <div style={{marginTop:'0.7rem',textAlign:'left'}}>
+                                <div style={{fontWeight:600, fontSize:'1.05rem', color:'#dc2626', marginBottom:'0.2rem'}}>Recent Interactions:</div>
+                                {stats.mock_interviews.recent_interviews.slice(-3).reverse().map((interview, idx) => (
+                                    <div key={idx} style={{marginBottom:'0.3rem',background:'#fef2f2',padding:'0.4em 0.7em',borderRadius:'8px'}}>
+                                        <div style={{fontWeight:500}}>{interview.interview_type} Interview</div>
+                                        <div style={{fontSize:'0.97em',color:'#64748b'}}>{formatDateTime(interview.timestamp)}</div>
+                                        {interview.overall_rating && <div>Rating: <b>{interview.overall_rating}/10</b></div>}
+                                        {interview.feedback && <div style={{fontStyle:'italic',color:'#7f1d1d'}}>{interview.feedback}</div>}
+                                    </div>
+                                ))}
                             </div>
-                            <div className="activity-content">
-                                <h4>{activity.activity_name}</h4>
-                                <p>{formatDate(activity.timestamp)}</p>
-                            </div>
-                        </div>
-                    ))}
+                        )}
+                    </div>
+                </div>
+                <div className="stat-card clickable" onClick={() => handleStatClick('resume')} title="Show Resume Activities" style={{cursor:'pointer',background:'linear-gradient(135deg,#f0fdfa 0%,#e0e7ef 100%)',borderRadius:'18px',boxShadow:'0 2px 12px rgba(0,0,0,0.07)',padding:'2rem 1.2rem',transition:'transform 0.12s,box-shadow 0.12s',border:'1.5px solid #e2e8f0',display:'flex',flexDirection:'column',alignItems:'center',gap:'0.5rem'}}>
+                    <div className="stat-icon" style={{fontSize:'2.2rem',marginBottom:'0.5rem'}}>📄</div>
+                    <div className="stat-content" style={{textAlign:'center'}}>
+                        <h3 style={{margin:'0',fontSize:'2.1rem',fontWeight:700,color:'#0e7490'}}>{stats.resume_activities.total_activities}</h3>
+                        <p style={{margin:'0.2rem 0 0.1rem',fontWeight:500}}>Resume Activities</p>
+                        {/* Show average ATS score if available */}
+                        {(() => {
+                            const evals = stats.resume_activities.recent_activities.filter(a => typeof a.ats_score === 'number');
+                            if (evals.length === 0) return null;
+                            const avg = Math.round(evals.reduce((sum, a) => sum + a.ats_score, 0) / evals.length);
+                            let color = '#16a34a';
+                            if (avg < 70 && avg >= 40) color = '#f59e42';
+                            if (avg < 40) color = '#dc2626';
+                            return (
+                                <span style={{display:'inline-block',marginTop:'0.4rem',padding:'0.25em 0.9em',borderRadius:'999px',background:color+'22',color:color,fontWeight:600,fontSize:'1.1rem',letterSpacing:'0.5px'}}>
+                                    Avg ATS: {avg}%
+                                </span>
+                            );
+                        })()}
+                    </div>
                 </div>
             </div>
 
-            <div className="recent-sections">
-                {stats.question_bank.recent_sessions.length > 0 && (
-                    <div className="recent-section">
-                        <h3>Recent Question Bank Sessions</h3>
-                        <div className="recent-items">
-                            {stats.question_bank.recent_sessions.slice(0, 5).map((session, index) => (
-                                <div key={index} className="recent-item">
-                                    <h4>{session.company} - {session.role}</h4>
-                                    <p>{session.domain} | {session.experience_level} | {session.difficulty}</p>
-                                    <span className="timestamp">{formatDate(session.timestamp)}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
 
-                {stats.mock_interviews.recent_interviews.length > 0 && (
-                    <div className="recent-section">
-                        <h3>Recent Mock Interviews</h3>
-                        <div className="recent-items">
-                            {stats.mock_interviews.recent_interviews.slice(0, 5).map((interview, index) => (
-                                <div key={index} className="recent-item">
-                                    <h4>{interview.interview_type} Interview</h4>
-                                    {interview.overall_rating && (
-                                        <p>Rating: {interview.overall_rating}/10</p>
-                                    )}
-                                    <span className="timestamp">{formatDate(interview.timestamp)}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
 
-                {stats.resume_activities.recent_activities.length > 0 && (
-                    <div className="recent-section">
-                        <h3>Recent Resume Activities</h3>
-                        <div className="recent-items">
-                            {stats.resume_activities.recent_activities.slice(0, 5).map((activity, index) => (
-                                <div key={index} className="recent-item">
-                                    <h4>{activity.activity_type}</h4>
-                                    {activity.ats_score && (
-                                        <p>ATS Score: {activity.ats_score}%</p>
-                                    )}
-                                    <span className="timestamp">{formatDate(activity.timestamp)}</span>
+            {/* Details shown in a popup/modal when stat card is clicked */}
+            {showModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100vw',
+                    height: '100vh',
+                    background: 'rgba(0,0,0,0.45)',
+                    zIndex: 1000,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'background 0.2s',
+                }} onClick={closeModal}>
+                    <div style={{
+                        background: 'linear-gradient(135deg, #f8fafc 0%, #e0e7ef 100%)',
+                        borderRadius: '18px',
+                        maxWidth: '1200px',
+                        minWidth: '320px',
+                        width: '99vw',
+                        maxHeight: '85vh',
+                        overflowY: 'auto',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+                        padding: '36px 32px 32px 32px',
+                        position: 'relative',
+                        border: '1.5px solid #e2e8f0',
+                        animation: 'fadeInModal 0.2s',
+                    }} onClick={e => e.stopPropagation()}>
+                        <button style={{
+                            position: 'absolute',
+                            top: 12,
+                            right: 18,
+                            background: '#f1f5f9',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: 36,
+                            height: 36,
+                            fontSize: 22,
+                            color: '#334155',
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
+                            cursor: 'pointer',
+                            transition: 'background 0.15s',
+                        }} onClick={closeModal} aria-label="Close">&times;</button>
+                        {activeDetail === 'login_logout' && (
+                            <div className="recent-section">
+                                <h3 style={{marginTop:0}}>Login & Logout Activities</h3>
+                                <div className="recent-items">
+                                    <div style={{display:'flex',gap:'2rem',flexWrap:'wrap'}}>
+                                        <div style={{flex:'1 1 200px'}}>
+                                            <h4 style={{margin:'0 0 0.5rem'}}>Logins</h4>
+                                            {stats.login_activities && stats.login_activities.length > 0 ? (
+                                                stats.login_activities.map((act, idx) => (
+                                                    <div key={act._id || idx} className="recent-item" style={{padding:'8px 0', borderBottom:'1px solid #e2e8f0'}}>
+                                                        <span style={{fontWeight:500, color:'#334155'}}>Login at</span> <span style={{color:'#64748b'}}>{formatDateTime(act.timestamp)}</span>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="recent-item">No login activities found.</div>
+                                            )}
+                                        </div>
+                                        <div style={{flex:'1 1 200px'}}>
+                                            <h4 style={{margin:'0 0 0.5rem'}}>Logouts</h4>
+                                            {stats.logout_activities && stats.logout_activities.length > 0 ? (
+                                                stats.logout_activities.map((act, idx) => (
+                                                    <div key={act._id || idx} className="recent-item" style={{padding:'8px 0', borderBottom:'1px solid #e2e8f0'}}>
+                                                        <span style={{fontWeight:500, color:'#334155'}}>Logout at</span> <span style={{color:'#64748b'}}>{formatDateTime(act.timestamp)}</span>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="recent-item">No logout activities found.</div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
-                            ))}
-                        </div>
+                            </div>
+                        )}
+                        {activeDetail === 'question_bank' && (
+                            <div className="recent-section">
+                                <h3>Recent Question Bank Sessions</h3>
+                                <div className="recent-items">
+                                    {stats.question_bank.recent_sessions && stats.question_bank.recent_sessions.length > 0 ? (
+                                        stats.question_bank.recent_sessions.map((session, index) => (
+                                            <div key={index} className="recent-item" style={{padding:'12px 0', borderBottom:'1px solid #e2e8f0'}}>
+                                                <h4 style={{margin:'0 0 4px 0', color:'#334155', fontWeight:600}}>
+                                                    question search for
+                                                    <span style={{color:'#0e7490', fontWeight:700}}>
+                                                        {session.company && session.company.trim() !== '' ? ` ${session.company}` : ' [No company specified]'}
+                                                    </span>
+                                                    {session.role ? ` - ${session.role}` : ''}
+                                                </h4>
+                                                <span className="timestamp" style={{color:'#64748b'}}>{formatDate(session.timestamp)}</span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="recent-item">No question bank sessions found.</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {activeDetail === 'resume' && (
+                            <div className="recent-section">
+                                <h3 style={{marginTop:0}}>Recent Resume Activities</h3>
+                                <div className="recent-items">
+                                    {stats.resume_activities.recent_activities.map((activity, index) => (
+                                        <div key={index} className="recent-item" style={{padding:'12px 0', borderBottom:'1px solid #e2e8f0'}}>
+                                            <h4 style={{margin:'0 0 4px 0', color:'#334155', fontWeight:600}}>{activity.activity_type.replace('_',' ').toUpperCase()}</h4>
+                                            {activity.resume_filename && (
+                                                <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>File:</span> {activity.resume_filename}</div>
+                                            )}
+                                            {activity.job_description && (
+                                                <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>Job Description:</span> <span style={{whiteSpace:'pre-line'}}>{activity.job_description}</span></div>
+                                            )}
+                                            {activity.ats_score !== undefined && activity.ats_score !== null && (
+                                                <div style={{marginBottom:4}}>
+                                                    <span style={{fontWeight:500, color:'#0ea5e9'}}>ATS Score:</span> <span style={{fontWeight:600, color: activity.ats_score >= 70 ? '#16a34a' : activity.ats_score >= 40 ? '#f59e42' : '#dc2626'}}>{activity.ats_score}%</span>
+                                                </div>
+                                            )}
+                                            {activity.suggestions && (
+                                                <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>Suggestions:</span> <span style={{whiteSpace:'pre-line'}}>{activity.suggestions}</span></div>
+                                            )}
+                                            {activity.missing_keywords && Array.isArray(activity.missing_keywords) && activity.missing_keywords.length > 0 && (
+                                                <div style={{marginBottom:4}}><span style={{fontWeight:500, color:'#64748b'}}>Missing Keywords:</span> {activity.missing_keywords.join(', ')}</div>
+                                            )}
+                                            {activity.resume_data && (
+                                                <div style={{marginBottom:4}}>
+                                                    <span style={{fontWeight:500, color:'#64748b'}}>Generated/Improved Resume:</span>
+                                                    <pre style={{background:'#f8fafc',padding:'8px',borderRadius:'8px',marginTop:'4px',overflowX:'auto',fontSize:'0.97em'}}>{activity.resume_data}</pre>
+                                                </div>
+                                            )}
+                                            <span className="timestamp" style={{color:'#64748b'}}>{formatDateTime(activity.timestamp)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        {activeDetail === 'mock' && (
+                            <div className="recent-section">
+                                <h3>Recent Mock Interviews</h3>
+                                <div className="recent-items">
+                                    {stats.mock_interviews.recent_interviews.map((interview, index) => (
+                                        <div key={index} className="recent-item">
+                                            <h4>{interview.interview_type} Interview</h4>
+                                            {interview.overall_rating && (
+                                                <p>Rating: {interview.overall_rating}/10</p>
+                                            )}
+                                            {interview.technical_score && (
+                                                <p>Technical: {interview.technical_score}/10</p>
+                                            )}
+                                            {interview.communication_score && (
+                                                <p>Communication: {interview.communication_score}/10</p>
+                                            )}
+                                            {interview.confidence_score && (
+                                                <p>Confidence: {interview.confidence_score}/10</p>
+                                            )}
+                                            {interview.feedback && (
+                                                <p>Feedback: {interview.feedback}</p>
+                                            )}
+                                            <span className="timestamp" style={{color:'#64748b'}}>{formatDateTime(interview.timestamp)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        {activeDetail === 'job' && (
+                            <div className="recent-section">
+                                <h3>Recent Job Search Activities</h3>
+                                <div className="recent-items">
+                                    {stats.job_searches.recent_jobs.map((job, index) => (
+                                        <div key={index} className="recent-item">
+                                            <h4>{job.query || 'Job search'}</h4>
+                                            <span className="timestamp">{formatDate(job.timestamp)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                )}
-            </div>
+                </div>
+            )}
+            {/* Subscription Details card removed as requested */}
         </div>
     );
 };

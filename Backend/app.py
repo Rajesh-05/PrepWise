@@ -1,3 +1,4 @@
+CLEAN_IMPORTS = True
 import os
 import asyncio
 import logging
@@ -5,7 +6,6 @@ import threading
 from dotenv import load_dotenv
 import json
 from flask import Flask, request, jsonify, redirect, send_from_directory
-import logging
 from flask_cors import CORS
 import time
 import math
@@ -16,23 +16,141 @@ from pymongo import MongoClient, ASCENDING
 from pymongo.errors import DuplicateKeyError
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
-from datetime import datetime, timedelta, timezone
-from itsdangerous import URLSafeTimedSerializer, SignatureExpired
-from google import genai
-from bson import ObjectId
 from auth_utils import (
     require_auth, verify_token, revoke_token, log_activity,
     log_question_bank_activity, log_resume_activity, log_mock_interview,
-    log_job_search, update_chat_session, get_user_stats
+    log_job_search, get_user_stats
 )
+import auth_utils
 from models import get_collections, create_indexes
-
 
 # Load .env file FIRST before accessing environment variables
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+
+# --- Chat Sessions API ---
+@app.route('/api/chat-sessions/<session_id>', methods=['DELETE'])
+@require_auth
+def delete_chat_session(session_id):
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    from bson import ObjectId
+    result = db['chat_sessions'].delete_one({'_id': ObjectId(session_id), 'user_id': user['_id']})
+    if result.deleted_count == 1:
+        return jsonify({'message': 'Chat session deleted'})
+    else:
+        return jsonify({'error': 'Chat session not found or not authorized'}), 404
+
+@app.route('/api/chat-sessions/<session_id>', methods=['PATCH'])
+@require_auth
+def update_chat_session(session_id):
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    data = request.get_json()
+    new_topic = data.get('topic', '').strip()
+    
+    if not new_topic:
+        return jsonify({'error': 'Topic cannot be empty'}), 400
+    
+    from bson import ObjectId
+    result = db['chat_sessions'].update_one(
+        {'_id': ObjectId(session_id), 'user_id': user['_id']},
+        {'$set': {'topic': new_topic}}
+    )
+    
+    if result.matched_count == 1:
+        return jsonify({'message': 'Chat session updated', 'topic': new_topic})
+    else:
+        return jsonify({'error': 'Chat session not found or not authorized'}), 404
+
+@app.route('/api/chat-sessions', methods=['GET', 'DELETE'])
+@require_auth
+def handle_chat_sessions():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    if request.method == 'DELETE':
+        # Delete all chat sessions for this user
+        result = db['chat_sessions'].delete_many({'user_id': user['_id']})
+        return jsonify({'message': f'{result.deleted_count} chat sessions deleted'})
+    
+    # GET request
+    # Sort by last_message_at descending (most recent first)
+    sessions = list(db['chat_sessions'].find({'user_id': user['_id']}).sort('last_message_at', -1))
+    for s in sessions:
+        s['_id'] = str(s['_id'])
+        s['user_id'] = str(s['user_id'])
+        for m in s.get('messages', []):
+            if '_id' in m:
+                m['_id'] = str(m['_id'])
+    return jsonify({'sessions': sessions})
+
+# --- V2V Agent Evaluation API ---
+@app.route('/api/v2v-evaluation', methods=['POST'])
+@require_auth
+def save_v2v_evaluation():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    data = request.get_json()
+    score = data.get('score')
+    suggestions = data.get('suggestions')
+    details = data.get('details')
+    timestamp = datetime.now(timezone.utc)
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    eval_doc = {
+        'user_id': user['_id'],
+        'email': email,
+        'score': score,
+        'suggestions': suggestions,
+        'details': details,
+        'timestamp': timestamp
+    }
+    db['v2v_evaluations'].insert_one(eval_doc)
+    return jsonify({'message': 'Evaluation saved'})
+
+@app.route('/api/v2v-evaluations', methods=['GET'])
+@require_auth
+def get_v2v_evaluations():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    evals = list(db['v2v_evaluations'].find({'user_id': user['_id']}))
+    for e in evals:
+        e['_id'] = str(e['_id'])
+        e['user_id'] = str(e['user_id'])
+    return jsonify({'evaluations': evals})
+
+# Import datetime, timedelta, timezone for subsequent route usage
+from datetime import datetime, timedelta, timezone
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired
+from google import genai
+from bson import ObjectId
 
 
 # Google OAuth Configuration
@@ -423,7 +541,12 @@ def get_jobs():
 		# Log the search activity
 		if db is not None:
 			log_job_search(db, request.user_email, query, location, num_jobs, len(jobs_list))
-			log_activity(db, request.user_email, "job_finder", f"Job search: {query} in {location}")
+			# Format activity name based on whether location is specified
+			if location and location.lower() not in ['any', '', 'none']:
+				activity_name = f"{query} in {location}"
+			else:
+				activity_name = query
+			log_activity(db, request.user_email, "job_finder", activity_name)
 		
 		return jsonify({"jobs": jobs_list})
 	# Map location/country to valid JobSpy country code
@@ -493,7 +616,12 @@ def get_jobs():
 		# Log the search activity
 		if db is not None:
 			log_job_search(db, request.user_email, query, location, num_jobs, len(jobs_list))
-			log_activity(db, request.user_email, "job_finder", f"Job search: {query} in {location}")
+			# Format activity name based on whether location is specified
+			if location and location.lower() not in ['any', '', 'none']:
+				activity_name = f"{query} in {location}"
+			else:
+				activity_name = query
+			log_activity(db, request.user_email, "job_finder", activity_name)
 		
 		return jsonify({"jobs": jobs_list})
 	except Exception as e:
@@ -589,9 +717,17 @@ def get_gemini_resume_improvements(resume_text):
     # Try to extract text candidate safely
     try:
         candidates = resp_json.get("candidates")
-        if not candidates or not isinstance(candidates, list):
-            return {"error": "Gemini response missing 'candidates' field", "raw": resp_json}
-        text = candidates[0]["content"]["parts"][0]["text"]
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return {"error": "Gemini response missing or empty 'candidates' field", "raw": resp_json}
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return {"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return {"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}
+        text = parts[0].get("text")
+        if text is None:
+            return {"error": "Gemini response missing 'text' in first part", "raw": resp_json}
     except Exception as e:
         return {"error": f"Failed to extract text from Gemini response: {e}", "raw": resp_json}
 
@@ -766,7 +902,8 @@ def improve_resume():
             log_resume_activity(
                 db, request.user_email, "improvement", 
                 resume_filename=filename,
-                suggestions=result.get("suggestions")
+                suggestions=result.get("suggestions"),
+                resume_data=result.get("improved_resume") or result.get("improved_text") or result.get("resume_text")
             )
             log_activity(db, request.user_email, "resume_builder", "Resume Improvement Request")
             
@@ -850,7 +987,8 @@ Generate the complete, ATS-optimized resume. Output ONLY the resume text, no exp
             log_resume_activity(
                 db, request.user_email, "generation",
                 job_description=job_description[:500],
-                suggestions=f"Generated resume using {template} template"
+                suggestions=f"Generated resume using {template} template",
+                resume_data=resume_text
             )
             log_activity(db, request.user_email, "resume_builder", "Resume Generation Request")
         
@@ -966,11 +1104,20 @@ def generate_questions():
         json=data,
         timeout=60
     )
-
     try:
         resp_json = response.json()
         candidates = resp_json.get("candidates", [])
-        text = candidates[0]["content"]["parts"][0]["text"]
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'candidates' field", "raw": resp_json}), 500
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return jsonify({"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}), 500
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}), 500
+        text = parts[0].get("text")
+        if text is None:
+            return jsonify({"error": "Gemini response missing 'text' in first part", "raw": resp_json}), 500
 
         # Clean Gemini's markdown fences and control characters
         import re
@@ -985,7 +1132,7 @@ def generate_questions():
         print('Gemini raw response:', repr(text))
         import json
         questions_list = json.loads(text)
-        
+
         # Log the activity to database
         if db is not None:
             log_question_bank_activity(
@@ -994,19 +1141,10 @@ def generate_questions():
             )
             log_activity(db, request.user_email, "question_bank", 
                         f"Generated {num_q} questions for {company}")
-        
+        return jsonify({"questions": questions_list})
     except Exception as e:
-        return jsonify({"error": f"Failed to parse Gemini response: {e}", "raw": text if 'text' in locals() else response.text}), 500
-
-    return jsonify({
-        "company": company,
-        "role": role,
-        "domain": domain,
-        "experience_level": experience,
-        "question_type": qtype,
-        "difficulty": difficulty,
-        "questions": questions_list
-    })
+        print("Failed to parse Gemini response:", e)
+        return jsonify({"error": f"Failed to parse Gemini response: {e}"}), 500
 
 # ---------------------------
 # Auth helpers and endpoints
@@ -1291,25 +1429,174 @@ def save_mock_interview_score():
         return jsonify({"error": f"Server error: {e}"}), 500
 
 
+
+SYSTEM_PROMPT = "You are an AI Interview Coach. Help the user prepare for interviews, answer questions, and provide feedback."
+
+def get_gemini_chat_response(message, history=[]):
+    """
+    Get response from Gemini for chat with history and config
+    """
+    try:
+        model_name = "gemini-2.0-flash" 
+        # Strip newline/spaces just in case
+        api_key = API_KEY.strip() if API_KEY else ""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        
+        # Build contents from history + current message
+        contents = []
+        
+
+        formatted_history = []
+        
+        # Add system prompt
+        formatted_history.append({
+            "role": "user",
+            "parts": [{"text": SYSTEM_PROMPT}]
+        })
+        formatted_history.append({
+            "role": "model",
+            "parts": [{"text": "Understood. I am read to help as an AI Interview Coach."}]
+        })
+
+        # Add conversation history
+        for msg in history:
+            role = "user" if msg.get("role") == "user" else "model"
+            content = msg.get("content", "")
+            formatted_history.append({
+                "role": role,
+                "parts": [{"text": content}]
+            })
+            
+        # Add current message
+        formatted_history.append({
+            "role": "user",
+            "parts": [{"text": message}]
+        })
+
+        payload = {
+            "contents": formatted_history,
+            "generationConfig": {
+                "temperature": 0.7,
+                "topK": 40,
+                "topP": 0.95,
+                "maxOutputTokens": 2048,
+            },
+            "safetySettings": [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                }
+            ]
+        }
+        
+        response = requests.post(url, json=payload, timeout=30)
+        
+        if response.status_code != 200:
+            logging.error(f"Gemini API error: {response.text}")
+            return "I'm having trouble connecting to my brain right now. Please try again later."
+            
+        data = response.json()
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError):
+            logging.error(f"Unexpected Gemini response format: {data}")
+            return "I received an unexpected response. Please try again."
+            
+    except Exception as e:
+        logging.error(f"Error calling Gemini: {e}")
+        return "Sorry, I encountered an error processing your request."
+
 @app.route('/api/user/chat-message', methods=['POST'])
 @require_auth
 def save_chat_message():
     """
     Save chat messages for session tracking
     """
-    if db is None:
+    # Get database handle from app (preferred) or global fallback
+    current_db = getattr(app, 'mongo_db', None)
+    if current_db is None:
+        current_db = globals().get('db')
+
+    if current_db is None:
         return jsonify({"error": "Database not configured"}), 503
-    
+
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         session_id = data.get('session_id', 'default')
         message = data.get('message', '')
         role = data.get('role', 'user')
+
+        if not message:
+            return jsonify({"error": "Message cannot be empty"}), 400
+
+        # 1. Save USER message
+        result = auth_utils.update_chat_session(current_db, request.user_email, session_id, message, role)
+        if not result:
+            return jsonify({"error": "Failed to update chat session"}), 500
+
+        response_data = {"message": "Chat message saved"}
         
-        update_chat_session(db, request.user_email, session_id, message, role)
-        
-        return jsonify({"message": "Chat message saved"})
+        # If a new session was created, result is the _id
+        if isinstance(result, str):
+            response_data["session_id"] = result
+            # Update session_id for the subsequent AI response
+            session_id = result
+            
+        if role == 'user':
+            # Retrieve history for context
+            history = []
+            try:
+                # Resolve User ObjectId from email (reliable for both Google Auth and standard auth)
+                # request.user_id might be a Google ID string, not a Mongo ObjectId
+                user = current_db['users'].find_one({'email': request.user_email})
+                if user:
+                    user_id = user['_id']
+                    
+                    # Query db for this session using the resolved user_id
+                    # Handle both session_id string (timestamp) and ObjectId (backend generated)
+                    query = {'user_id': user_id}
+                    if auth_utils.ObjectId.is_valid(session_id):
+                        query['$or'] = [{'session_id': session_id}, {'_id': auth_utils.ObjectId(session_id)}]
+                    else:
+                        query['session_id'] = session_id
+                        
+                    chat_session = current_db['chat_sessions'].find_one(query)
+                    
+                    if chat_session and 'messages' in chat_session:
+                        # Exclude the very last message which is the one we just added
+                        all_msgs = chat_session.get('messages', [])
+                        if len(all_msgs) > 1:
+                            history = all_msgs[:-1]
+            except Exception as hist_e:
+                logging.error(f"Error fetching history: {hist_e}")
+                # Continue without history if fail
+            
+            # Get AI response
+            ai_response_text = get_gemini_chat_response(message, history=history)
+            
+            # Save AI message
+            ai_result = auth_utils.update_chat_session(
+                current_db, 
+                request.user_email, 
+                session_id, 
+                ai_response_text, 
+                role='assistant' # db stores as 'assistant', Gemini needs 'model' - mapping handled in get_gemini
+            )
+            
+            if ai_result:
+                response_data["assistant_message"] = ai_response_text
+            else:
+                logging.error("Failed to save AI response to database")
+
+        return jsonify(response_data)
     except Exception as e:
+        import traceback
+        logging.error(f"Error in save_chat_message: {e}")
+        traceback.print_exc()
         return jsonify({"error": f"Server error: {e}"}), 500
 
 # Dashboard subscription/activity endpoint
@@ -1329,20 +1616,37 @@ def dashboard_info():
     subs_col = db['subscription_info']
     activities_col = db['user_activities']
 
-    user = users_col.find_one({'email': email}, {'subscription_tier': 1, 'subscription_status': 1, 'subscription_start': 1, 'subscription_end': 1, 'name': 1, 'email': 1})
+    user = users_col.find_one({'email': email}, {
+        'subscription_tier': 1,
+        'subscription_status': 1,
+        'subscription_start': 1,
+        'subscription_end': 1,
+        'name': 1,
+        'email': 1,
+        'picture': 1,
+        'firstName': 1,
+        'total_login_count': 1,
+        'last_login': 1
+    })
     latest_sub = subs_col.find({'email': email}).sort('timestamp', -1).limit(1)
     sub_details = next(latest_sub, None)
     recent_activities = list(activities_col.find({'email': email}).sort('timestamp', -1).limit(10))
+    all_activities = list(activities_col.find({'email': email}))
 
     # Convert ObjectId fields to strings for user
     if user and '_id' in user:
         user['_id'] = str(user['_id'])
-    # Convert ObjectId fields to strings for subscription
+    # Convert ObjectId fields to strings for subscription and normalize keys for frontend
     if sub_details and isinstance(sub_details, dict):
         if '_id' in sub_details:
             sub_details['_id'] = str(sub_details['_id'])
         if 'user_id' in sub_details:
             sub_details['user_id'] = str(sub_details['user_id'])
+        # Normalize subscription fields for frontend
+        sub_details['tier'] = sub_details.get('subscription_tier', sub_details.get('tier', 'free'))
+        sub_details['status'] = sub_details.get('payment_status', sub_details.get('subscription_status', 'active'))
+        sub_details['start_date'] = sub_details.get('start_date', sub_details.get('subscription_start'))
+        sub_details['end_date'] = sub_details.get('end_date', sub_details.get('subscription_end'))
     # Convert ObjectId fields to strings for activities
     for activity in recent_activities:
         if '_id' in activity:
@@ -1350,72 +1654,162 @@ def dashboard_info():
         if 'user_id' in activity:
             activity['user_id'] = str(activity['user_id'])
 
-    # Provide default empty objects for expected frontend keys
+    # Calculate chat sessions and messages (from chat_sessions collection)
+    chat_sessions_col = db['chat_sessions']
+    user_obj = users_col.find_one({'email': email})
+    chat_sessions = list(chat_sessions_col.find({'user_id': user_obj['_id']})) if user_obj else []
+    # Convert ObjectId fields in chat_sessions to strings
+    for s in chat_sessions:
+        if '_id' in s:
+            s['_id'] = str(s['_id'])
+        if 'user_id' in s:
+            s['user_id'] = str(s['user_id'])
+        for m in s.get('messages', []):
+            if '_id' in m:
+                m['_id'] = str(m['_id'])
+    total_chat_sessions = len(chat_sessions)
+    total_chat_messages = sum(s.get('message_count', 0) for s in chat_sessions)
+    # V2V evaluations
+    v2v_evals = list(db['v2v_evaluations'].find({'user_id': user_obj['_id']})) if user_obj else []
+    for e in v2v_evals:
+        e['_id'] = str(e['_id'])
+        e['user_id'] = str(e['user_id'])
+
+    # Calculate job searches and details
+    job_searches = [a for a in all_activities if a.get('activity_type') == 'job_finder']
+    total_job_searches = len(job_searches)
+    # Show recent 5 unique job search queries (by query string, most recent first)
+    seen_queries = set()
+    recent_jobs = []
+    for job in sorted(job_searches, key=lambda x: x.get('timestamp', ''), reverse=True):
+        query = job.get('query', '').strip()
+        if query and query.lower() not in seen_queries:
+            recent_jobs.append({
+                'query': query,
+                'timestamp': job.get('timestamp')
+            })
+            seen_queries.add(query.lower())
+        if len(recent_jobs) >= 5:
+            break
+    job_opened_details = recent_jobs
+    for a in job_searches:
+        job_info = {
+            'timestamp': a.get('timestamp'),
+            'query': a.get('activity_name'),
+            'details': a.get('job_details', {})
+        }
+        job_opened_details.append(job_info)
+
+    # Calculate login info
+    total_logins = user.get('total_login_count', 0) if user else 0
+    last_login = user.get('last_login') if user else None
+
+    # Calculate question bank sessions and details
+    qb_col = db['question_bank_activities']
+    qb_sessions = list(qb_col.find({'user_id': user_obj['_id']}).sort('timestamp', -1).limit(5)) if user_obj else []
+    total_qb_sessions = qb_col.count_documents({'user_id': user_obj['_id']}) if user_obj else 0
+    qb_recent_sessions = []
+    for a in qb_sessions:
+        qb_recent_sessions.append({
+            'timestamp': a.get('timestamp'),
+            'company': a.get('company', ''),
+            'role': a.get('role', ''),
+            'domain': a.get('domain', ''),
+            'experience_level': a.get('experience_level', ''),
+            'difficulty': a.get('difficulty', ''),
+            'question_type': a.get('question_type', ''),
+            'num_questions': a.get('num_questions', 0),
+        })
+
+    # Calculate mock interviews and details
+    mock_interviews = [a for a in all_activities if a.get('activity_type') == 'mock_interview']
+    total_mock_interviews = len(mock_interviews)
+    mock_recent_interviews = []
+    for a in mock_interviews[-5:]:
+        mock_recent_interviews.append({
+            'timestamp': a.get('timestamp'),
+            'interview_type': a.get('interview_type'),
+            'overall_rating': a.get('overall_rating'),
+            'communication_score': a.get('communication_score'),
+            'technical_score': a.get('technical_score'),
+            'confidence_score': a.get('confidence_score'),
+            'feedback': a.get('feedback'),
+        })
+
+    # Calculate resume activities and details
+    resume_activities = [a for a in all_activities if a.get('activity_type') in ['resume_evaluator', 'resume_builder', 'improvement', 'generation', 'evaluation']]
+    total_resume_activities = len(resume_activities)
+    resume_recent_activities = []
+    for a in resume_activities:
+        resume_recent_activities.append({
+            'timestamp': a.get('timestamp'),
+            'activity_type': a.get('activity_type'),
+            'ats_score': a.get('ats_score'),
+            'missing_keywords': a.get('missing_keywords'),
+            'suggestions': a.get('suggestions'),
+            'resume_filename': a.get('resume_filename'),
+            'resume_data': a.get('resume_data'),
+            'job_description': a.get('job_description'),
+        })
+
+    # Timeline (most recent 20 activities)
+    activity_timeline = list(activities_col.find({'email': email}).sort('timestamp', -1).limit(20))
+    for activity in activity_timeline:
+        if '_id' in activity:
+            activity['_id'] = str(activity['_id'])
+        if 'user_id' in activity:
+            activity['user_id'] = str(activity['user_id'])
+
+    # Add all login and logout activities for the frontend
+    login_activities = [a for a in all_activities if a.get('activity_type') == 'login']
+    logout_activities = [a for a in all_activities if a.get('activity_type') == 'logout']
+    # Convert ObjectId fields to strings for login_activities
+    for activity in login_activities:
+        if '_id' in activity:
+            activity['_id'] = str(activity['_id'])
+        if 'user_id' in activity:
+            activity['user_id'] = str(activity['user_id'])
+    for activity in logout_activities:
+        if '_id' in activity:
+            activity['_id'] = str(activity['_id'])
+        if 'user_id' in activity:
+            activity['user_id'] = str(activity['user_id'])
+
     response = {
         'user': user,
         'subscription': sub_details,
         'activities': recent_activities,
-        'chat_sessions': {'total_sessions': 0, 'total_messages': 0},
-        'job_searches': {'total_searches': 0},
-        'user_info': {'total_logins': 0, 'last_login': None},
-        'question_bank': {'recent_sessions': []},
-        'mock_interviews': {'recent_interviews': []},
-        'resume_activities': {'recent_activities': []},
-        'activity_timeline': []
+        'login_activities': login_activities,
+        'logout_activities': logout_activities,
+        'chat_sessions': {
+            'total_sessions': total_chat_sessions,
+            'total_messages': total_chat_messages,
+            'sessions': chat_sessions
+        },
+        'job_searches': {
+            'total_searches': total_job_searches,
+            'recent_jobs': job_opened_details
+        },
+        'user_info': {
+            'total_logins': total_logins,
+            'last_login': last_login
+        },
+        'question_bank': {
+            'total_sessions': total_qb_sessions,
+            'recent_sessions': qb_recent_sessions
+        },
+        'mock_interviews': {
+            'total_interviews': total_mock_interviews,
+            'recent_interviews': mock_recent_interviews
+        },
+        'resume_activities': {
+            'total_activities': total_resume_activities,
+            'recent_activities': resume_recent_activities
+        },
+        'timeline': activity_timeline
     }
+
     return jsonify(response)
-# Subscription update endpoint
-@app.route('/api/subscription', methods=['POST'])
-@require_auth
-def update_subscription():
-    data = request.get_json()
-    tier = data.get('tier')
-    start_date = data.get('start_date')
-    end_date = data.get('end_date')
-    status = data.get('status', 'active')
-    payment_method = data.get('payment_method', '')
-    amount_paid = data.get('amount_paid', 0)
-    transaction_id = data.get('transaction_id', '')
-    auto_renew = data.get('auto_renew', False)
-
-    email = getattr(request, 'user_email', None)
-    db = getattr(app, 'mongo_db', None)
-    if db is None:
-        db = globals().get('db', None)
-    if db is None or email is None:
-        return jsonify({'error': 'Database or user not found'}), 500
-
-    users_col = getattr(app, 'users_col', None)
-    if users_col is None:
-        users_col = db['users']
-    subs_col = db['subscription_info']
-
-    # Update user profile with current subscription tier
-    users_col.update_one({'email': email}, {
-        '$set': {
-            'subscription_tier': tier,
-            'subscription_status': status,
-            'subscription_start': start_date,
-            'subscription_end': end_date
-        }
-    })
-
-    # Insert subscription history record
-    subs_col.insert_one({
-        'email': email,
-        'user_id': users_col.find_one({'email': email})['_id'],
-        'subscription_tier': tier,
-        'payment_status': status,
-        'start_date': start_date,
-        'end_date': end_date,
-        'payment_method': payment_method,
-        'amount_paid': amount_paid,
-        'transaction_id': transaction_id,
-        'auto_renew': auto_renew,
-        'timestamp': datetime.now(timezone.utc)
-    })
-
-    return jsonify({'success': True, 'tier': tier, 'status': status})
 
 # ==================== USER CHAT & PROFILE IMAGE ====================
 from werkzeug.utils import secure_filename
