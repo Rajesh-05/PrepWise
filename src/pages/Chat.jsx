@@ -2,13 +2,25 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import '../styles/Chat.css';
-// Gemini system prompt and API key (replace with your actual key or use env variable)
-const SYSTEM_PROMPT = "You are an AI Interview Coach. Help the user prepare for interviews, answer questions, and provide feedback.";
-const GEMINI_API_KEY = process.env.REACT_APP_GEMINI_API_KEY || "YOUR_GEMINI_API_KEY_HERE";
+// Gemini system prompt and API key removed - now handled by backend
 
 const Chat = () => {
-    const [conversations, setConversations] = useState([]);
-    const [activeConversationId, setActiveConversationId] = useState(null);
+    // Initialize state from localStorage if available (Instant Load)
+    const [conversations, setConversations] = useState(() => {
+        const local = localStorage.getItem('chat_conversations');
+        return local ? JSON.parse(local) : [];
+    });
+
+    // Set active conversation from initial state if needed
+    const [activeConversationId, setActiveConversationId] = useState(() => {
+        const local = localStorage.getItem('chat_conversations');
+        if (local) {
+            const convs = JSON.parse(local);
+            return convs.length > 0 ? convs[0].id : null;
+        }
+        return null;
+    });
+
     const [value, setValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -41,18 +53,13 @@ const Chat = () => {
                     }));
                     setConversations(convs);
                     localStorage.setItem('chat_conversations', JSON.stringify(convs));
-                    if (convs.length > 0) setActiveConversationId(convs[0].id);
+
+                    // Only set active if none selected (prevent overriding user selection if they clicked fast)
+                    setActiveConversationId(prev => (prev ? prev : (convs.length > 0 ? convs[0].id : null)));
                 }
-                // Don't auto-create a conversation - let user click "New" button
             } catch (err) {
-                // fallback to localStorage if available
-                const local = localStorage.getItem('chat_conversations');
-                if (local) {
-                    const convs = JSON.parse(local);
-                    setConversations(convs);
-                    if (convs.length > 0) setActiveConversationId(convs[0].id);
-                }
-                // Don't auto-create a conversation on error - let user click "New" button
+                console.error("Failed to fetch chats:", err);
+                // Keep existing localStorage data if fetch fails
             }
         };
         fetchChats();
@@ -90,11 +97,11 @@ const Chat = () => {
 
     const updateConversationTitle = (convId, firstMessage) => {
         // Generate a title from the first message
-        const title = firstMessage.length > 30 
-            ? firstMessage.substring(0, 30) + '...' 
+        const title = firstMessage.length > 30
+            ? firstMessage.substring(0, 30) + '...'
             : firstMessage;
-        
-        setConversations(prev => prev.map(conv => 
+
+        setConversations(prev => prev.map(conv =>
             conv.id === convId ? { ...conv, title } : conv
         ));
     };
@@ -136,7 +143,7 @@ const Chat = () => {
 
         try {
             const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-            
+
             if (!token) {
                 throw new Error('User is not authenticated');
             }
@@ -144,12 +151,12 @@ const Chat = () => {
             // Save user message to backend
             const activeConv = conversations.find(c => c.id === activeConversationId);
             const backendSessionId = activeConv?.session_id || activeConversationId;
-            
+
             const userMsgResponse = await fetch('/api/user/chat-message', {
                 method: 'POST',
-                headers: { 
-                    'Authorization': `Bearer ${token}`, 
-                    'Content-Type': 'application/json' 
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
                     session_id: backendSessionId,
@@ -157,123 +164,47 @@ const Chat = () => {
                     role: 'user'
                 })
             });
-            
+
             const userMsgData = await userMsgResponse.json();
-            
+
             // If backend created a new session and returned session_id, update our local conversation
             if (userMsgData.session_id) {
-                setConversations(prev => prev.map(conv => 
-                    conv.id === activeConversationId 
+                setConversations(prev => prev.map(conv =>
+                    conv.id === activeConversationId
                         ? { ...conv, session_id: userMsgData.session_id }
                         : conv
                 ));
             }
 
-            // Build conversation history for Gemini
-            const conversationHistory = messages.map(msg => ({
-                role: msg.role,
-                parts: [{ text: msg.content }]
-            }));
-
-            // Add system context as first user message if this is the start
-            if (conversationHistory.length === 0) {
-                conversationHistory.unshift({
-                    role: 'user',
-                    parts: [{ text: SYSTEM_PROMPT }]
-                });
-                conversationHistory.push({
+            // If backend returned an AI response, add it to the conversation
+            if (userMsgData.assistant_message) {
+                const newAiMsg = {
                     role: 'model',
-                    parts: [{ text: 'Hello! I\'m your AI Interview Coach. I\'m here to help you prepare for interviews, learn new concepts, and advance your career. What would you like to work on today?' }]
-                });
+                    content: userMsgData.assistant_message
+                };
+
+                setConversations(prev => prev.map(conv =>
+                    conv.id === activeConversationId
+                        ? {
+                            ...conv,
+                            messages: [...conv.messages, newAiMsg],
+                            updatedAt: new Date()
+                        }
+                        : conv
+                ));
             }
-
-            // Add the new user message
-            conversationHistory.push({
-                role: 'user',
-                parts: [{ text: userMessage }]
-            });
-
-            const response = await fetch(
-                 `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        contents: conversationHistory,
-                        generationConfig: {
-                            temperature: 0.7,
-                            topK: 40,
-                            topP: 0.95,
-                            maxOutputTokens: 2048,
-                        },
-                        safetySettings: [
-                            {
-                                category: "HARM_CATEGORY_HARASSMENT",
-                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                            },
-                            {
-                                category: "HARM_CATEGORY_HATE_SPEECH",
-                                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                            }
-                        ]
-                    })
-                }
-            );
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || 'Failed to get response from AI');
-            }
-
-            const data = await response.json();
-            const aiResponse = data.candidates[0].content.parts[0].text;
-
-            // Add AI response to conversation
-            const newAiMsg = {
-                role: 'model',
-                content: aiResponse
-            };
-
-            setConversations(prev => prev.map(conv => 
-                conv.id === activeConversationId 
-                    ? { 
-                        ...conv, 
-                        messages: [...conv.messages, newAiMsg],
-                        updatedAt: new Date()
-                    } 
-                    : conv
-            ));
-
-            // Save AI response to backend - use updated session_id if available
-            const finalConv = conversations.find(c => c.id === activeConversationId);
-            const finalBackendSessionId = userMsgData.session_id || finalConv?.session_id || backendSessionId;
-            
-            await fetch('/api/user/chat-message', {
-                method: 'POST',
-                headers: { 
-                    'Authorization': `Bearer ${token}`, 
-                    'Content-Type': 'application/json' 
-                },
-                body: JSON.stringify({
-                    session_id: finalBackendSessionId,
-                    message: aiResponse,
-                    role: 'model'
-                })
-            });
 
         } catch (err) {
             console.error('Chat error:', err);
             setError(err.message || 'Failed to send message. Please try again.');
-            
+
             // Remove the user message if there was an error
-            setConversations(prev => prev.map(conv => 
-                conv.id === activeConversationId 
-                    ? { 
-                        ...conv, 
+            setConversations(prev => prev.map(conv =>
+                conv.id === activeConversationId
+                    ? {
+                        ...conv,
                         messages: conv.messages.slice(0, -1)
-                    } 
+                    }
                     : conv
             ));
         } finally {
@@ -300,7 +231,7 @@ const Chat = () => {
                 return; // Don't delete from frontend if backend deletion failed
             }
         }
-        
+
         // Delete from frontend
         if (conversations.length === 1) {
             // Don't delete the last conversation, just clear it
@@ -342,20 +273,20 @@ const Chat = () => {
         }
 
         const conv = conversations.find(c => c.id === convId);
-        
+
         // Update backend if this is a persisted session
         if (conv && conv.session_id) {
             const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
             try {
                 const response = await fetch(`/api/chat-sessions/${conv.session_id}`, {
                     method: 'PATCH',
-                    headers: { 
+                    headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ topic: editingTitle.trim() })
                 });
-                
+
                 if (!response.ok) {
                     console.error('Failed to update chat session title in backend');
                 }
@@ -365,7 +296,7 @@ const Chat = () => {
         }
 
         // Update frontend state
-        const updated = conversations.map(c => 
+        const updated = conversations.map(c =>
             c.id === convId ? { ...c, title: editingTitle.trim() } : c
         );
         setConversations(updated);
@@ -376,21 +307,21 @@ const Chat = () => {
     const clearAllConversations = async () => {
         if (window.confirm('Are you sure you want to clear all conversations? This cannot be undone.')) {
             const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-            
+
             // Delete all sessions from backend
             try {
                 const response = await fetch('/api/chat-sessions', {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                
+
                 if (!response.ok) {
                     console.error('Failed to delete all chat sessions from backend');
                 }
             } catch (err) {
                 console.error('Error deleting all chat sessions:', err);
             }
-            
+
             // Clear frontend state
             const newConv = {
                 id: Date.now(),
@@ -405,7 +336,7 @@ const Chat = () => {
         }
     };
 
-        const getTotalMessages = () => conversations.reduce((acc, c) => acc + (c.messages ? c.messages.length : 0), 0);
+    const getTotalMessages = () => conversations.reduce((acc, c) => acc + (c.messages ? c.messages.length : 0), 0);
     const resizeInput = () => {
         if (!inputRef.current) return;
         const ta = inputRef.current;
@@ -416,38 +347,38 @@ const Chat = () => {
     const formatMessageContent = (content) => {
         // Enhanced markdown-like formatting for rich text display
         let formatted = content;
-        
+
         // Escape HTML first to prevent XSS
         formatted = formatted
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
-        
+
         // Code blocks with language support
         formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
             return `<pre class="code-block"><code class="language-${lang || 'plaintext'}">${code.trim()}</code></pre>`;
         });
-        
+
         // Inline code
         formatted = formatted.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-        
+
         // Bold
         formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        
+
         // Italic
         formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-        
+
         // Headers
         formatted = formatted.replace(/^### (.+)$/gm, '<h3 class="msg-h3">$1</h3>');
         formatted = formatted.replace(/^## (.+)$/gm, '<h2 class="msg-h2">$1</h2>');
         formatted = formatted.replace(/^# (.+)$/gm, '<h1 class="msg-h1">$1</h1>');
-        
+
         // Numbered lists
         formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li class="numbered">$1</li>');
-        
+
         // Bullet points (handle both - and •)
         formatted = formatted.replace(/^[•-]\s+(.+)$/gm, '<li>$1</li>');
-        
+
         // Wrap consecutive list items in ul tags
         formatted = formatted.replace(/(<li(?:\s+class="numbered")?>.*?<\/li>\s*)+/g, (match) => {
             if (match.includes('class="numbered"')) {
@@ -455,34 +386,34 @@ const Chat = () => {
             }
             return `<ul class="msg-list">${match}</ul>`;
         });
-        
+
         // Links
         formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-        
+
         // Blockquotes
         formatted = formatted.replace(/^&gt;\s+(.+)$/gm, '<blockquote>$1</blockquote>');
-        
+
         // Horizontal rule
         formatted = formatted.replace(/^---$/gm, '<hr>');
-        
+
         // Paragraphs (double line break)
         formatted = formatted.replace(/\n\n+/g, '</p><p>');
         formatted = `<p>${formatted}</p>`;
-        
+
         // Clean up empty paragraphs
         formatted = formatted.replace(/<p><\/p>/g, '');
         formatted = formatted.replace(/<p>\s*<\/p>/g, '');
-        
+
         // Single line breaks within paragraphs
         formatted = formatted.replace(/<p>(.*?)<\/p>/gs, (match, content) => {
             // Don't add <br> if content has block elements
-            if (content.includes('<pre>') || content.includes('<ul>') || content.includes('<ol>') || 
+            if (content.includes('<pre>') || content.includes('<ul>') || content.includes('<ol>') ||
                 content.includes('<h1>') || content.includes('<h2>') || content.includes('<h3>')) {
                 return `<p>${content}</p>`;
             }
             return `<p>${content.replace(/\n/g, '<br>')}</p>`;
         });
-        
+
         return formatted;
     };
 
@@ -497,8 +428,8 @@ const Chat = () => {
                 </div>
                 <ul className="conversation-list">
                     {conversations.map(conv => (
-                        <li 
-                            key={conv.id} 
+                        <li
+                            key={conv.id}
                             className={`conversation ${conv.id === activeConversationId ? 'active' : ''}`}
                             onClick={() => setActiveConversationId(conv.id)}
                         >
@@ -521,7 +452,7 @@ const Chat = () => {
                                     />
                                 </div>
                             ) : (
-                                <div 
+                                <div
                                     className="conv-title"
                                     onDoubleClick={(e) => {
                                         e.stopPropagation();
@@ -533,12 +464,12 @@ const Chat = () => {
                                 </div>
                             )}
                             <div className="conv-sub">
-                                {conv.messages.length === 0 
-                                    ? 'No messages yet' 
+                                {conv.messages.length === 0
+                                    ? 'No messages yet'
                                     : `${conv.messages.length} messages`}
                             </div>
                             <div className="conv-actions">
-                                <button 
+                                <button
                                     className="conv-edit-btn"
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -549,7 +480,7 @@ const Chat = () => {
                                 >
                                     ✏️
                                 </button>
-                                <button 
+                                <button
                                     className="conv-delete-btn"
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -612,7 +543,7 @@ const Chat = () => {
                                 className={`message ${msg.role === 'user' ? 'user' : 'assistant'}`}
                             >
                                 <div className="message-body">
-                                    <div 
+                                    <div
                                         className="message-text"
                                         dangerouslySetInnerHTML={{ __html: formatMessageContent(msg.content) }}
                                     />
@@ -668,17 +599,17 @@ const Chat = () => {
                         disabled={isLoading || !activeConversationId}
                     />
                     <div className="chat-input-actions">
-                        <button 
-                            type="button" 
-                            className="btn btn-outline" 
+                        <button
+                            type="button"
+                            className="btn btn-outline"
                             onClick={() => setValue('')}
                             disabled={isLoading || !activeConversationId}
                         >
                             Clear
                         </button>
-                        <button 
-                            type="submit" 
-                            className={`btn btn-primary ${isLoading ? 'loading' : ''}`} 
+                        <button
+                            type="submit"
+                            className={`btn btn-primary ${isLoading ? 'loading' : ''}`}
                             disabled={isLoading || !value.trim() || !activeConversationId}
                         >
                             {isLoading ? 'Sending...' : 'Send'}

@@ -93,7 +93,8 @@ def handle_chat_sessions():
         return jsonify({'message': f'{result.deleted_count} chat sessions deleted'})
     
     # GET request
-    sessions = list(db['chat_sessions'].find({'user_id': user['_id']}))
+    # Sort by last_message_at descending (most recent first)
+    sessions = list(db['chat_sessions'].find({'user_id': user['_id']}).sort('last_message_at', -1))
     for s in sessions:
         s['_id'] = str(s['_id'])
         s['user_id'] = str(s['user_id'])
@@ -1428,6 +1429,87 @@ def save_mock_interview_score():
         return jsonify({"error": f"Server error: {e}"}), 500
 
 
+
+SYSTEM_PROMPT = "You are an AI Interview Coach. Help the user prepare for interviews, answer questions, and provide feedback."
+
+def get_gemini_chat_response(message, history=[]):
+    """
+    Get response from Gemini for chat with history and config
+    """
+    try:
+        model_name = "gemini-2.0-flash" 
+        # Strip newline/spaces just in case
+        api_key = API_KEY.strip() if API_KEY else ""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        
+        # Build contents from history + current message
+        contents = []
+        
+
+        formatted_history = []
+        
+        # Add system prompt
+        formatted_history.append({
+            "role": "user",
+            "parts": [{"text": SYSTEM_PROMPT}]
+        })
+        formatted_history.append({
+            "role": "model",
+            "parts": [{"text": "Understood. I am read to help as an AI Interview Coach."}]
+        })
+
+        # Add conversation history
+        for msg in history:
+            role = "user" if msg.get("role") == "user" else "model"
+            content = msg.get("content", "")
+            formatted_history.append({
+                "role": role,
+                "parts": [{"text": content}]
+            })
+            
+        # Add current message
+        formatted_history.append({
+            "role": "user",
+            "parts": [{"text": message}]
+        })
+
+        payload = {
+            "contents": formatted_history,
+            "generationConfig": {
+                "temperature": 0.7,
+                "topK": 40,
+                "topP": 0.95,
+                "maxOutputTokens": 2048,
+            },
+            "safetySettings": [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                }
+            ]
+        }
+        
+        response = requests.post(url, json=payload, timeout=30)
+        
+        if response.status_code != 200:
+            logging.error(f"Gemini API error: {response.text}")
+            return "I'm having trouble connecting to my brain right now. Please try again later."
+            
+        data = response.json()
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError):
+            logging.error(f"Unexpected Gemini response format: {data}")
+            return "I received an unexpected response. Please try again."
+            
+    except Exception as e:
+        logging.error(f"Error calling Gemini: {e}")
+        return "Sorry, I encountered an error processing your request."
+
 @app.route('/api/user/chat-message', methods=['POST'])
 @require_auth
 def save_chat_message():
@@ -1451,16 +1533,66 @@ def save_chat_message():
         if not message:
             return jsonify({"error": "Message cannot be empty"}), 400
 
+        # 1. Save USER message
         result = auth_utils.update_chat_session(current_db, request.user_email, session_id, message, role)
         if not result:
             return jsonify({"error": "Failed to update chat session"}), 500
 
-        # If a new session was created, return the MongoDB _id
-        response = {"message": "Chat message saved"}
-        if isinstance(result, str):  # New session created, result is the _id
-            response["session_id"] = result
+        response_data = {"message": "Chat message saved"}
         
-        return jsonify(response)
+        # If a new session was created, result is the _id
+        if isinstance(result, str):
+            response_data["session_id"] = result
+            # Update session_id for the subsequent AI response
+            session_id = result
+            
+        if role == 'user':
+            # Retrieve history for context
+            history = []
+            try:
+                # Resolve User ObjectId from email (reliable for both Google Auth and standard auth)
+                # request.user_id might be a Google ID string, not a Mongo ObjectId
+                user = current_db['users'].find_one({'email': request.user_email})
+                if user:
+                    user_id = user['_id']
+                    
+                    # Query db for this session using the resolved user_id
+                    # Handle both session_id string (timestamp) and ObjectId (backend generated)
+                    query = {'user_id': user_id}
+                    if auth_utils.ObjectId.is_valid(session_id):
+                        query['$or'] = [{'session_id': session_id}, {'_id': auth_utils.ObjectId(session_id)}]
+                    else:
+                        query['session_id'] = session_id
+                        
+                    chat_session = current_db['chat_sessions'].find_one(query)
+                    
+                    if chat_session and 'messages' in chat_session:
+                        # Exclude the very last message which is the one we just added
+                        all_msgs = chat_session.get('messages', [])
+                        if len(all_msgs) > 1:
+                            history = all_msgs[:-1]
+            except Exception as hist_e:
+                logging.error(f"Error fetching history: {hist_e}")
+                # Continue without history if fail
+            
+            # Get AI response
+            ai_response_text = get_gemini_chat_response(message, history=history)
+            
+            # Save AI message
+            ai_result = auth_utils.update_chat_session(
+                current_db, 
+                request.user_email, 
+                session_id, 
+                ai_response_text, 
+                role='assistant' # db stores as 'assistant', Gemini needs 'model' - mapping handled in get_gemini
+            )
+            
+            if ai_result:
+                response_data["assistant_message"] = ai_response_text
+            else:
+                logging.error("Failed to save AI response to database")
+
+        return jsonify(response_data)
     except Exception as e:
         import traceback
         logging.error(f"Error in save_chat_message: {e}")

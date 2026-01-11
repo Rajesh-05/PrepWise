@@ -234,10 +234,14 @@ def update_chat_session(db, user_email, session_id, message, role='user'):
         }
         
         # Check if session exists
-        session = db['chat_sessions'].find_one({
-            "user_id": user['_id'],
-            "session_id": session_id
-        })
+        # Check if session exists using either session_id field OR _id if valid
+        query = {"user_id": user['_id']}
+        if ObjectId.is_valid(session_id):
+            query["$or"] = [{"session_id": session_id}, {"_id": ObjectId(session_id)}]
+        else:
+            query["session_id"] = session_id
+            
+        session = db['chat_sessions'].find_one(query)
         
         if session:
             # Update existing session
