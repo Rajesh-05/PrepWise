@@ -93,8 +93,20 @@ const Profile = () => {
     <div className="profile-page">
       <div className="profile-card">
         <div className="profile-pic-section">
-          {user.picture ? (
-            <img src={user.picture} alt="Profile" className="profile-avatar" />
+          {user.picture && user.picture.trim() !== '' && user.picture.trim() !== 'null' && user.picture.trim() !== 'undefined' ? (
+            <img
+              src={user.picture}
+              alt="Profile"
+              className="profile-avatar"
+              onError={e => {
+                e.target.onerror = null;
+                e.target.style.display = 'none';
+                const placeholder = document.createElement('div');
+                placeholder.className = 'profile-avatar';
+                placeholder.innerHTML = `<svg class='profile-avatar' viewBox='0 0 96 96' fill='none' xmlns='http://www.w3.org/2000/svg'><circle cx='48' cy='48' r='48' fill='#e5e7eb'/><path d='M48 52c7.18 0 13-5.82 13-13s-5.82-13-13-13-13 5.82-13 13 5.82 13 13 13zm0 4c-8.84 0-26 4.42-26 13.25V76h52v-6.75C74 60.42 56.84 56 48 56z' fill='#9ca3af'/></svg>`;
+                e.target.parentNode.replaceChild(placeholder, e.target);
+              }}
+            />
           ) : DEFAULT_AVATAR}
         </div>
         <div className="profile-info">

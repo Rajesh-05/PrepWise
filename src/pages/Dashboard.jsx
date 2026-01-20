@@ -99,8 +99,21 @@ const Dashboard = () => {
         <div className="dashboard-container">
             <div className="dashboard-header">
                 <div className="user-welcome">
-                    {stats?.user?.picture && stats.user.picture.trim() !== '' ? (
-                        <img src={stats.user.picture} alt="Profile" className="dashboard-profile-pic" />
+                    {stats?.user?.picture && stats.user.picture.trim() !== '' && stats.user.picture.trim() !== 'null' && stats.user.picture.trim() !== 'undefined' ? (
+                        <img
+                            src={stats.user.picture}
+                            alt="Profile"
+                            className="dashboard-profile-pic"
+                            onError={e => {
+                                e.target.onerror = null;
+                                e.target.style.display = 'none';
+                                const placeholder = document.createElement('div');
+                                placeholder.className = 'dashboard-profile-pic avatar-placeholder';
+                                placeholder.setAttribute('aria-label', 'Default profile avatar');
+                                placeholder.innerHTML = `<svg class='avatar-icon' viewBox='0 0 96 96' fill='none' xmlns='http://www.w3.org/2000/svg' style='width:90px;height:90px;display:block;'><circle cx='48' cy='48' r='48' fill='#e5e7eb'/><path d='M48 52c7.18 0 13-5.82 13-13s-5.82-13-13-13-13 5.82-13 13 5.82 13 13 13zm0 4c-8.84 0-26 4.42-26 13.25V76h52v-6.75C74 60.42 56.84 56 48 56z' fill='#9ca3af'/></svg>`;
+                                e.target.parentNode.replaceChild(placeholder, e.target);
+                            }}
+                        />
                     ) : (
                         <div className="dashboard-profile-pic avatar-placeholder" aria-label="Default profile avatar">
                             <svg

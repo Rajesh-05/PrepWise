@@ -101,11 +101,18 @@ const Header = () => {
                                 style={{ cursor: 'pointer' }}
                                 onDoubleClick={() => window.location.href = '/profile'}
                             >
-                                {user.picture ? (
+                                {user.picture && user.picture.trim() !== '' && user.picture.trim() !== 'null' && user.picture.trim() !== 'undefined' ? (
                                     <img
                                         src={user.picture}
                                         alt={user.name || user.email}
                                         className="profile-picture"
+                                        onError={e => {
+                                            e.target.onerror = null;
+                                            e.target.style.display = 'none';
+                                            const placeholder = document.createElement('span');
+                                            placeholder.innerHTML = `<svg class='profile-picture' viewBox='0 0 40 40' fill='none' xmlns='http://www.w3.org/2000/svg'><circle cx='20' cy='20' r='20' fill='#e5e7eb'/><path d='M20 21c3.314 0 6-2.686 6-6s-2.686-6-6-6-6 2.686-6 6 2.686 6 6 6zm0 2c-4.418 0-8 2.239-8 5v2h16v-2c0-2.761-3.582-5-8-5z' fill='#9ca3af'/></svg>`;
+                                            e.target.parentNode.replaceChild(placeholder, e.target);
+                                        }}
                                     />
                                 ) : (
                                     // Show a blank profile SVG icon if no picture
