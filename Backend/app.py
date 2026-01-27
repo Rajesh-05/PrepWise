@@ -806,14 +806,14 @@ def get_gemini_ats_score(resume_text, job_description):
 
 
 
-# Vapi API Key
-VAPI_API_KEY = os.getenv("VAPI_API_KEY")
+# Vapi Private Key
+VAPI_PRIVATE_KEY = os.getenv("VAPI_PRIVATE_KEY")
 
 @app.route('/api/vapi/assistant', methods=['POST'])
 @require_auth  # Add authentication
 def create_vapi_assistant():
-    if not VAPI_API_KEY:
-        return jsonify({"error": "VAPI_API_KEY not configured on server"}), 500
+    if not VAPI_PRIVATE_KEY:
+        return jsonify({"error": "VAPI_PRIVATE_KEY not configured on server"}), 500
 
     data = request.get_json()
     job_description = data.get('jd')
@@ -840,7 +840,7 @@ def create_vapi_assistant():
         response = requests.post(
             "https://api.vapi.ai/assistant",
             headers={
-                "Authorization": f"Bearer {VAPI_API_KEY}",
+                "Authorization": f"Bearer {VAPI_PRIVATE_KEY}",
                 "Content-Type": "application/json"
             },
             json={
