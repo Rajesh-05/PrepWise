@@ -15,6 +15,24 @@ Collections:
 
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
+from bson import ObjectId
+
+
+def serialize_doc(doc):
+    """
+    Convert MongoDB ObjectId to string recursively.
+    Handles nested documents and lists for JSON serialization.
+    """
+    if isinstance(doc, list):
+        return [serialize_doc(d) for d in doc]
+    if isinstance(doc, dict):
+        return {
+            k: str(v) if isinstance(v, ObjectId) 
+            else serialize_doc(v) if isinstance(v, (dict, list)) 
+            else v 
+            for k, v in doc.items()
+        }
+    return doc
 
 # MongoDB Schema Definitions (for documentation)
 

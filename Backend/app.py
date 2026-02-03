@@ -22,13 +22,65 @@ from auth_utils import (
     log_job_search, get_user_stats
 )
 import auth_utils
-from models import get_collections, create_indexes
+from models import get_collections, create_indexes, serialize_doc
 
 # Load .env file FIRST before accessing environment variables
 load_dotenv()
 
+# Configure logging
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+logger.info(f"PrepWise API starting up (Log Level: {LOG_LEVEL})")
+
 app = Flask(__name__)
-CORS(app)
+
+# Configure CORS to only allow frontend URLs
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 3600
+    },
+    r"/auth/*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"],
+        "supports_credentials": True,
+        "max_age": 3600
+    },
+    r"/generate*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 3600
+    },
+    r"/improve*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 3600
+    },
+    r"/evaluate*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 3600
+    }
+})
 
 # --- Chat Sessions API ---
 @app.route('/api/chat-sessions/<session_id>', methods=['DELETE'])
@@ -95,13 +147,7 @@ def handle_chat_sessions():
     # GET request
     # Sort by last_message_at descending (most recent first)
     sessions = list(db['chat_sessions'].find({'user_id': user['_id']}).sort('last_message_at', -1))
-    for s in sessions:
-        s['_id'] = str(s['_id'])
-        s['user_id'] = str(s['user_id'])
-        for m in s.get('messages', []):
-            if '_id' in m:
-                m['_id'] = str(m['_id'])
-    return jsonify({'sessions': sessions})
+    return jsonify({'sessions': serialize_doc(sessions)})
 
 # --- V2V Agent Evaluation API ---
 @app.route('/api/v2v-evaluation', methods=['POST'])
@@ -141,19 +187,16 @@ def get_v2v_evaluations():
     if not user:
         return jsonify({'error': 'User not found'}), 404
     evals = list(db['v2v_evaluations'].find({'user_id': user['_id']}))
-    for e in evals:
-        e['_id'] = str(e['_id'])
-        e['user_id'] = str(e['user_id'])
-    return jsonify({'evaluations': evals})
+    return jsonify({'evaluations': serialize_doc(evals)})
 
 # Import datetime, timedelta, timezone for subsequent route usage
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
-from google import genai
 from bson import ObjectId
 
 
-# Google OAuth Configuration
+# Frontend & Google OAuth Configuration
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = "http://localhost:5000/auth/google/callback"
@@ -191,12 +234,12 @@ def google_callback():
     
     # Check if user denied access
     if error:
-        print(f"OAuth error from Google: {error}")
-        return redirect("http://localhost:3000/login?error=access_denied")
+        logger.warning(f"OAuth error from Google: {error}")
+        return redirect(f"{FRONTEND_URL}/login?error=access_denied")
     
     if not code:
-        print("No authorization code received")
-        return redirect("http://localhost:3000/login?error=no_code")
+        logger.warning("No authorization code received")
+        return redirect(f"{FRONTEND_URL}/login?error=no_code")
     
     # Exchange code for access token
     token_data = {
@@ -208,36 +251,36 @@ def google_callback():
     }
     
     try:
-        print("Exchanging code for token...")
+        logger.debug("Exchanging authorization code for access token...")
         token_response = requests.post(GOOGLE_TOKEN_URL, data=token_data, timeout=10)
-        print(f"Token response status: {token_response.status_code}")
+        logger.debug(f"Token response status: {token_response.status_code}")
         
         if token_response.status_code != 200:
-            print(f"Token error response: {token_response.text}")
-            return redirect("http://localhost:3000/login?error=token_exchange_failed")
+            logger.error(f"Token exchange failed: {token_response.text}")
+            return redirect(f"{FRONTEND_URL}/login?error=token_exchange_failed")
         
         tokens = token_response.json()
         access_token = tokens.get("access_token")
         
         if not access_token:
-            print("No access token in response")
-            return redirect("http://localhost:3000/login?error=no_token")
+            logger.warning("No access token in OAuth response")
+            return redirect(f"{FRONTEND_URL}/login?error=no_token")
         
         # Get user info from Google
-        print("Fetching user info...")
+        logger.debug("Fetching user info from Google...")
         headers = {"Authorization": f"Bearer {access_token}"}
         user_response = requests.get(GOOGLE_USERINFO_URL, headers=headers, timeout=10)
         
         if user_response.status_code != 200:
-            print(f"User info error: {user_response.text}")
-            return redirect("http://localhost:3000/login?error=user_info_failed")
+            logger.error(f"Failed to fetch user info: {user_response.text}")
+            return redirect(f"{FRONTEND_URL}/login?error=user_info_failed")
         
         user_info = user_response.json()
-        print(f"User info received: {user_info.get('email')}")
+        logger.info(f"User authenticated via Google: {user_info.get('email')}")
         
         # Store user in MongoDB if available
         mongo_uri = os.environ.get("MONGODB_URI")
-        print(f"Checking MongoDB: mongo_uri={mongo_uri is not None}, db={db is not None}, users_col={users_col is not None}")
+        logger.debug(f"MongoDB availability - URI: {bool(mongo_uri)}, db: {db is not None}, users_col: {users_col is not None}")
         if mongo_uri is not None and db is not None and users_col is not None:
             try:
                 # Check if user exists
@@ -275,15 +318,14 @@ def google_callback():
                 
                 # Log login activity
                 log_activity(db, user_info.get("email"), "login", "Google OAuth Login")
-                print(f"User logged and activity logged for {user_info.get('email')}")
+                logger.info(f"User stored in database: {user_info.get('email')}")
                 
             except Exception as e:
-                print(f"MongoDB error: {e}")
+                logger.error(f"MongoDB storage failed: {e}")
                 # Continue even if MongoDB fails
         
         # Generate JWT session token
         try:
-            jwt_secret = os.environ.get("JWT_SECRET") or "jwtsecret"
             session_payload = {
                 "sub": user_info.get("id"),
                 "email": user_info.get("email"),
@@ -291,23 +333,21 @@ def google_callback():
                 "exp": datetime.now(timezone.utc) + timedelta(days=7),
                 "iat": datetime.now(timezone.utc),
             }
-            session_token = jwt.encode(session_payload, jwt_secret, algorithm="HS256")
-            print(f"JWT token generated successfully")
+            session_token = jwt.encode(session_payload, JWT_SECRET, algorithm="HS256")
+            logger.debug(f"JWT token generated successfully for OAuth user")
             
             # Redirect to frontend with token
-            return redirect(f"http://localhost:3000/#session_token={session_token}")
+            return redirect(f"{FRONTEND_URL}/#session_token={session_token}")
         except Exception as e:
-            print(f"JWT generation error: {e}")
-            return redirect("http://localhost:3000/login?error=token_generation_failed")
+            logger.error(f"JWT generation failed: {e}")
+            return redirect(f"{FRONTEND_URL}/login?error=token_generation_failed")
         
     except requests.exceptions.RequestException as e:
-        print(f"OAuth request error: {e}")
-        return redirect(f"http://localhost:3000/login?error=oauth_failed")
+        logger.error(f"OAuth request failed: {e}")
+        return redirect(f"{FRONTEND_URL}/login?error=oauth_failed")
     except Exception as e:
-        print(f"Unexpected error in OAuth callback: {e}")
-        import traceback
-        traceback.print_exc()
-        return redirect(f"http://localhost:3000/login?error=server_error")
+        logger.error(f"Unexpected error in OAuth callback: {e}", exc_info=True)
+        return redirect(f"{FRONTEND_URL}/login?error=server_error")
 
 
 # ==================== EMAIL/PASSWORD AUTHENTICATION ====================
@@ -376,7 +416,7 @@ def signup():
         result = users_col.insert_one(user_doc)
         user_id = str(result.inserted_id)
         
-        print(f"New user created: {email}")
+        logger.info(f"New user created: {email}")
         
         return jsonify({
             'message': 'Account created successfully',
@@ -384,9 +424,7 @@ def signup():
         }), 201
         
     except Exception as e:
-        print(f"Signup error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Signup error: {e}", exc_info=True)
         return jsonify({'error': 'Failed to create account. Please try again.'}), 500
 
 
@@ -440,7 +478,6 @@ def login():
         log_activity(db, email, "login", "Email/Password Login")
         
         # Generate JWT token
-        jwt_secret = os.environ.get("JWT_SECRET") or "jwtsecret"
         token_payload = {
             "sub": str(user['_id']),  # Use MongoDB _id as subject
             "email": email,
@@ -448,7 +485,7 @@ def login():
             "exp": datetime.now(timezone.utc) + timedelta(days=7),
             "iat": datetime.now(timezone.utc),
         }
-        token = jwt.encode(token_payload, jwt_secret, algorithm="HS256")
+        token = jwt.encode(token_payload, JWT_SECRET, algorithm="HS256")
         
         # Return user data (exclude password)
         user_data = {
@@ -460,7 +497,7 @@ def login():
             "subscription_tier": user.get('subscription_tier', 'free')
         }
         
-        print(f"User logged in: {email}")
+        logger.info(f"User logged in: {email}")
         
         return jsonify({
             'token': token,
@@ -468,9 +505,7 @@ def login():
         }), 200
         
     except Exception as e:
-        print(f"Login error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Login error: {e}", exc_info=True)
         return jsonify({'error': 'Failed to sign in. Please try again.'}), 500
 
 
@@ -484,7 +519,7 @@ def auto_login():
     import jwt
     jwt_secret = os.environ.get("JWT_SECRET_KEY", "jwtsecret")
     try:
-        payload = jwt.decode(token, jwt_secret, algorithms=["HS256"])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         email = payload.get("email")
         if not email:
             return jsonify({"error": "Invalid token"}), 401
@@ -657,11 +692,11 @@ if MONGODB_URI:
         # Get all collections and create indexes
         collections = get_collections(db)
         create_indexes(db)
-        print("✅ MongoDB connected and indexes created")
+        logger.info("MongoDB connected and indexes created")
     except Exception as e:
-        print(f"Warning: Failed to initialize MongoDB: {e}")
+        logger.error(f"Failed to initialize MongoDB: {e}")
 else:
-    print("Warning: MONGODB_URI not set. Auth endpoints will return 503.")
+    logger.warning("MONGODB_URI not set. Auth endpoints will return 503.")
 
 
 # ---------------------------------------------------------------------------
@@ -695,7 +730,7 @@ def get_gemini_resume_improvements(resume_text):
     }
 
     model1 = "gemini-2.5-flash"
-    print("[DEBUG] GEMINI_API_KEY used for Gemini API call:", API_KEY)
+    logging.debug(f"Calling Gemini API with model: {model1}")
     response = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
         json=data,
@@ -710,8 +745,7 @@ def get_gemini_resume_improvements(resume_text):
 
     # If API returned an error structure or missing expected keys, return that for debugging
     if not response.ok:
-        print("Gemini API error status:", response.status_code)
-        print("Gemini API error response:", response.text)
+        logger.error(f"Gemini API error status: {response.status_code}, response: {response.text}")
         return {"error": f"Gemini API returned status {response.status_code}", "details": resp_json}
 
     # Try to extract text candidate safely
@@ -773,22 +807,36 @@ def get_gemini_ats_score(resume_text, job_description):
     try:
         resp_json = response.json()
     except Exception:
-        print("Gemini API raw response:", response.text)
+        logger.error(f"Gemini API raw response: {response.text}")
         return {"error": "Invalid JSON response from Gemini API", "raw_response": response.text}
 
     if not response.ok:
-        print("Gemini API returned non-200:", response.status_code, resp_json)
+        logger.error(f"Gemini API returned non-200: {response.status_code} - {resp_json}")
         return {"error": f"Gemini API returned status {response.status_code}", "details": resp_json}
 
     # Defensive extraction
     try:
         candidates = resp_json.get("candidates")
-        if not candidates or not isinstance(candidates, list):
-            print("Gemini response missing 'candidates':", resp_json)
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            logger.warning(f"Gemini response missing 'candidates': {resp_json}")
             return {"error": "Gemini response missing 'candidates' field", "raw": resp_json}
-        text = candidates[0]["content"]["parts"][0]["text"]
+        
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            logger.warning(f"Gemini response missing 'content': {resp_json}")
+            return {"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}
+        
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            logger.warning(f"Gemini response missing 'parts': {resp_json}")
+            return {"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}
+        
+        text = parts[0].get("text")
+        if text is None:
+            logger.warning(f"Gemini response missing 'text': {resp_json}")
+            return {"error": "Gemini response missing 'text' in first part", "raw": resp_json}
     except Exception as e:
-        print("Error extracting candidate text:", e)
+        logger.error(f"Error extracting candidate text: {e}", exc_info=True)
         return {"error": f"Error extracting candidate text: {e}", "raw": resp_json}
 
     # Clean and parse JSON from text
@@ -800,7 +848,7 @@ def get_gemini_ats_score(resume_text, job_description):
         import json
         return json.loads(text)
     except Exception as e:
-        print("Error parsing Gemini API response:", str(e))
+        logger.error(f"Error parsing Gemini API response: {e}", exc_info=True)
         return {"error": f"Error parsing Gemini API response: {e}", "extracted_text": text}
 
 
@@ -856,10 +904,8 @@ def create_vapi_assistant():
             }
         }
         
-        print("=" * 80)
-        print("VAPI API Request Payload:")
-        print(json.dumps(payload, indent=2))
-        print("=" * 80)
+        logger.debug("Vapi API Request Payload:")
+        logger.debug(json.dumps(payload, indent=2))
         
         response = requests.post(
             "https://api.vapi.ai/assistant",
@@ -871,8 +917,7 @@ def create_vapi_assistant():
             timeout=10
         )
         if response.status_code != 201:
-            print("Vapi API error status:", response.status_code)
-            print("Vapi API error response:", response.text)
+            logger.error(f"Vapi API error: status {response.status_code}, response: {response.text}")
             return jsonify({"error": "Failed to create Vapi assistant", "details": response.json()}), response.status_code
         
         assistant_id = response.json().get("id")
@@ -955,16 +1000,25 @@ Provide constructive, actionable feedback. Be encouraging but honest.
         )
         
         if not response.ok:
-            print("Gemini API error status:", response.status_code)
-            print("Gemini API error response:", response.text)
+            logger.error(f"Gemini API error in feedback: status {response.status_code}, response: {response.text}")
             return jsonify({"error": "Failed to generate feedback"}), 500
         
         resp_json = response.json()
         candidates = resp_json.get("candidates")
-        if not candidates or not isinstance(candidates, list):
-            return jsonify({"error": "Invalid response from AI"}), 500
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'candidates' field"}), 500
         
-        feedback_text = candidates[0]["content"]["parts"][0]["text"]
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return jsonify({"error": "Gemini response missing or invalid 'content' in first candidate"}), 500
+        
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'parts' in content"}), 500
+        
+        feedback_text = parts[0].get("text")
+        if feedback_text is None:
+            return jsonify({"error": "Gemini response missing 'text' in first part"}), 500
         
         # Clean markdown fences if present
         if feedback_text.strip().startswith('```'):
@@ -996,12 +1050,10 @@ Provide constructive, actionable feedback. Be encouraging but honest.
         return jsonify(feedback_data)
         
     except json.JSONDecodeError as e:
-        print(f"JSON parsing error: {e}")
+        logger.error(f"JSON parsing error: {e}")
         return jsonify({"error": "Failed to parse AI response", "details": str(e)}), 500
     except Exception as e:
-        print(f"Error generating feedback: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error generating feedback: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/improve-resume', methods=['POST'])
@@ -1075,7 +1127,7 @@ Generate the complete, ATS-optimized resume. Output ONLY the resume text, no exp
 
     try:
         model1 = "gemini-2.5-flash"
-        print("[DEBUG] GEMINI_API_KEY used for resume generation:", API_KEY)
+        logging.debug(f"Calling Gemini API with model: {model1} for resume generation")
         response = requests.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
             json={
@@ -1089,8 +1141,7 @@ Generate the complete, ATS-optimized resume. Output ONLY the resume text, no exp
         )
         
         if not response.ok:
-            print("Gemini API error status:", response.status_code)
-            print("Gemini API error response:", response.text)
+            logger.error(f"Gemini API error in resume generation: status {response.status_code}, response: {response.text}")
             try:
                 resp_json = response.json()
                 return jsonify({"error": f"Gemini API returned status {response.status_code}", "details": resp_json}), 500
@@ -1099,10 +1150,20 @@ Generate the complete, ATS-optimized resume. Output ONLY the resume text, no exp
         
         resp_json = response.json()
         candidates = resp_json.get("candidates")
-        if not candidates or not isinstance(candidates, list):
-            return jsonify({"error": "Gemini response missing 'candidates' field", "raw": resp_json}), 500
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'candidates' field", "raw": resp_json}), 500
         
-        resume_text = candidates[0]["content"]["parts"][0]["text"]
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return jsonify({"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}), 500
+        
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}), 500
+        
+        resume_text = parts[0].get("text")
+        if resume_text is None:
+            return jsonify({"error": "Gemini response missing 'text' in first part", "raw": resp_json}), 500
         
         # Log the activity
         if db is not None:
@@ -1117,7 +1178,7 @@ Generate the complete, ATS-optimized resume. Output ONLY the resume text, no exp
         return jsonify({"resume": resume_text})
         
     except Exception as e:
-        print(f"Error generating resume: {e}")
+        logger.error(f"Error generating resume: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/evaluate-resume', methods=['POST'])
@@ -1251,7 +1312,7 @@ def generate_questions():
         # Remove any control characters
         text = re.sub(r'[\x00-\x1F]+', '', text)
         # Log raw text for debugging
-        print('Gemini raw response:', repr(text))
+        logger.debug(f"Gemini raw response: {repr(text)}")
         import json
         questions_list = json.loads(text)
 
@@ -1265,7 +1326,7 @@ def generate_questions():
                         f"Generated {num_q} questions for {company}")
         return jsonify({"questions": questions_list})
     except Exception as e:
-        print("Failed to parse Gemini response:", e)
+        logger.error(f"Failed to parse Gemini response: {e}", exc_info=True)
         return jsonify({"error": f"Failed to parse Gemini response: {e}"}), 500
 
 # ---------------------------
@@ -1371,10 +1432,7 @@ def auth_me():
         if not user:
             return jsonify({"error": "User not found"}), 404
         
-        # Convert ObjectId to string
-        user["_id"] = str(user["_id"])
-        
-        return jsonify({"user": user})
+        return jsonify({"user": serialize_doc(user)})
     except Exception as e:
         return jsonify({"error": f"Server error: {e}"}), 500
 
@@ -1422,10 +1480,10 @@ def forgot_password():
 
     # Generate a password reset token
     token = serializer.dumps(email, salt='password-reset-salt')
-    reset_url = f"http://localhost:3000/reset-password?token={token}"
+    reset_url = f"{FRONTEND_URL}/reset-password?token={token}"
 
     # Simulate sending email (replace with actual email service)
-    print(f"Password reset link: {reset_url}")
+    logger.debug(f"Password reset link: {reset_url}")
 
     return jsonify({"message": "Password reset link sent to your email"})
 
@@ -1474,19 +1532,9 @@ def user_dashboard():
         if not stats:
             return jsonify({"error": "Failed to retrieve user statistics"}), 500
         
-        # Convert ObjectIds to strings for JSON serialization
-        def serialize_doc(doc):
-            if isinstance(doc, list):
-                return [serialize_doc(d) for d in doc]
-            if isinstance(doc, dict):
-                return {k: str(v) if isinstance(v, ObjectId) else serialize_doc(v) if isinstance(v, (dict, list)) else v 
-                       for k, v in doc.items()}
-            return doc
-        
-        stats = serialize_doc(stats)
-        return jsonify(stats)
+        return jsonify(serialize_doc(stats))
     except Exception as e:
-        print(f"Error in dashboard: {e}")
+        logger.error(f"Error in dashboard: {e}", exc_info=True)
         return jsonify({"error": f"Server error: {e}"}), 500
 
 
@@ -1513,8 +1561,7 @@ def get_activity_log():
         
         activities = list(db['user_activities'].find(query).sort("timestamp", -1).limit(limit))
         
-
-        return jsonify({"activities": activities})
+        return jsonify({"activities": serialize_doc(activities)})
     except Exception as e:
         return jsonify({"error": f"Server error: {e}"}), 500
 
@@ -1755,47 +1802,30 @@ def dashboard_info():
     recent_activities = list(activities_col.find({'email': email}).sort('timestamp', -1).limit(10))
     all_activities = list(activities_col.find({'email': email}))
 
-    # Convert ObjectId fields to strings for user
-    if user and '_id' in user:
-        user['_id'] = str(user['_id'])
-    # Convert ObjectId fields to strings for subscription and normalize keys for frontend
+    # Serialize all ObjectId fields to strings
+    user = serialize_doc(user) if user else None
+    sub_details = serialize_doc(sub_details) if sub_details else None
+    recent_activities = serialize_doc(recent_activities)
+    
+    # Normalize subscription fields for frontend
     if sub_details and isinstance(sub_details, dict):
-        if '_id' in sub_details:
-            sub_details['_id'] = str(sub_details['_id'])
-        if 'user_id' in sub_details:
-            sub_details['user_id'] = str(sub_details['user_id'])
-        # Normalize subscription fields for frontend
         sub_details['tier'] = sub_details.get('subscription_tier', sub_details.get('tier', 'free'))
         sub_details['status'] = sub_details.get('payment_status', sub_details.get('subscription_status', 'active'))
         sub_details['start_date'] = sub_details.get('start_date', sub_details.get('subscription_start'))
         sub_details['end_date'] = sub_details.get('end_date', sub_details.get('subscription_end'))
-    # Convert ObjectId fields to strings for activities
-    for activity in recent_activities:
-        if '_id' in activity:
-            activity['_id'] = str(activity['_id'])
-        if 'user_id' in activity:
-            activity['user_id'] = str(activity['user_id'])
 
     # Calculate chat sessions and messages (from chat_sessions collection)
     chat_sessions_col = db['chat_sessions']
     user_obj = users_col.find_one({'email': email})
     chat_sessions = list(chat_sessions_col.find({'user_id': user_obj['_id']})) if user_obj else []
-    # Convert ObjectId fields in chat_sessions to strings
-    for s in chat_sessions:
-        if '_id' in s:
-            s['_id'] = str(s['_id'])
-        if 'user_id' in s:
-            s['user_id'] = str(s['user_id'])
-        for m in s.get('messages', []):
-            if '_id' in m:
-                m['_id'] = str(m['_id'])
+    chat_sessions = serialize_doc(chat_sessions)
+    
     total_chat_sessions = len(chat_sessions)
     total_chat_messages = sum(s.get('message_count', 0) for s in chat_sessions)
+    
     # V2V evaluations
     v2v_evals = list(db['v2v_evaluations'].find({'user_id': user_obj['_id']})) if user_obj else []
-    for e in v2v_evals:
-        e['_id'] = str(e['_id'])
-        e['user_id'] = str(e['user_id'])
+    v2v_evals = serialize_doc(v2v_evals)
 
     # Calculate job searches and details
     job_searches = [a for a in all_activities if a.get('activity_type') == 'job_finder']
@@ -1885,17 +1915,9 @@ def dashboard_info():
     # Add all login and logout activities for the frontend
     login_activities = [a for a in all_activities if a.get('activity_type') == 'login']
     logout_activities = [a for a in all_activities if a.get('activity_type') == 'logout']
-    # Convert ObjectId fields to strings for login_activities
-    for activity in login_activities:
-        if '_id' in activity:
-            activity['_id'] = str(activity['_id'])
-        if 'user_id' in activity:
-            activity['user_id'] = str(activity['user_id'])
-    for activity in logout_activities:
-        if '_id' in activity:
-            activity['_id'] = str(activity['_id'])
-        if 'user_id' in activity:
-            activity['user_id'] = str(activity['user_id'])
+    # Serialize ObjectId fields for login/logout activities
+    login_activities = serialize_doc(login_activities)
+    logout_activities = serialize_doc(logout_activities)
 
     response = {
         'user': user,
