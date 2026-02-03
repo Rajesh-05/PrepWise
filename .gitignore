@@ -19,7 +19,7 @@ coverage/
 
 # production
 /build
-
+app.log
 # misc
 .DS_Store
 .env
