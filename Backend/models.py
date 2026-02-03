@@ -98,11 +98,33 @@ RESUME_ACTIVITIES_SCHEMA = {
     "email": "string",
     "activity_type": "string (evaluation, improvement, build)",
     "resume_filename": "string",
-    "job_description": "string (optional)",
-    "ats_score": "int (0-100, for evaluations)",
+    "job_description": "string",
+    "ats_score": "int",
     "missing_keywords": "array of strings",
     "suggestions": "string",
-    "resume_data": "object",
+    "resume_data": "string",
+    "timestamp": "datetime",
+}
+
+INTERVIEW_FEEDBACK_SCHEMA = {
+    "_id": "ObjectId",
+    "user_id": "ObjectId (ref: users._id)",
+    "email": "string",
+    "job_description": "string",
+    "transcript": "string",
+    "duration_minutes": "float",
+    "feedback": {
+        "overall_score": "int (1-10)",
+        "communication_score": "int (1-10)",
+        "technical_score": "int (1-10)",
+        "confidence_score": "int (1-10)",
+        "strengths": "array of strings",
+        "weaknesses": "array of strings",
+        "improvement_areas": "array of strings",
+        "summary": "string",
+        "detailed_feedback": "string",
+        "recommended_actions": "array of strings"
+    },
     "timestamp": "datetime",
 }
 

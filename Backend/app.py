@@ -890,6 +890,120 @@ def create_vapi_assistant():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route('/api/vapi/generate-feedback', methods=['POST'])
+@require_auth
+def generate_interview_feedback():
+    """Generate AI-powered feedback for completed mock interview"""
+    try:
+        data = request.get_json()
+        job_description = data.get('jobDescription', '')
+        transcript = data.get('transcript', '')
+        duration_minutes = data.get('duration', 0)
+        
+        if not transcript:
+            return jsonify({"error": "No interview transcript provided"}), 400
+        
+        # Create comprehensive feedback prompt for Gemini
+        prompt = f"""
+You are an expert interview coach analyzing a mock interview performance.
+
+Job Description:
+{job_description}
+
+Interview Transcript:
+{transcript}
+
+Interview Duration: {duration_minutes} minutes
+
+Analyze this interview and provide detailed feedback in the following JSON format:
+{{
+  "overall_score": <number 1-10>,
+  "communication_score": <number 1-10>,
+  "technical_score": <number 1-10>,
+  "confidence_score": <number 1-10>,
+  "strengths": ["strength 1", "strength 2", "strength 3"],
+  "weaknesses": ["weakness 1", "weakness 2", "weakness 3"],
+  "improvement_areas": ["area 1", "area 2", "area 3"],
+  "summary": "A comprehensive 2-3 sentence summary of the interview performance",
+  "detailed_feedback": "Detailed paragraph analyzing the candidate's responses, communication style, and technical knowledge",
+  "recommended_actions": ["action 1", "action 2", "action 3"]
+}}
+
+Evaluate based on:
+1. Communication clarity and professionalism
+2. Technical knowledge and accuracy of answers
+3. Confidence and composure
+4. Relevance of answers to questions asked
+5. Use of examples and specific details
+
+Provide constructive, actionable feedback. Be encouraging but honest.
+"""
+        
+        # Call Gemini API
+        model_name = "gemini-2.5-flash"
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}",
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "maxOutputTokens": 2048,
+                }
+            },
+            timeout=30
+        )
+        
+        if not response.ok:
+            print("Gemini API error status:", response.status_code)
+            print("Gemini API error response:", response.text)
+            return jsonify({"error": "Failed to generate feedback"}), 500
+        
+        resp_json = response.json()
+        candidates = resp_json.get("candidates")
+        if not candidates or not isinstance(candidates, list):
+            return jsonify({"error": "Invalid response from AI"}), 500
+        
+        feedback_text = candidates[0]["content"]["parts"][0]["text"]
+        
+        # Clean markdown fences if present
+        if feedback_text.strip().startswith('```'):
+            feedback_text = feedback_text.strip().split('```')[-2] if '```' in feedback_text.strip() else feedback_text.strip()
+            if feedback_text.strip().startswith('json'):
+                feedback_text = feedback_text.strip()[4:].strip()
+        
+        feedback_data = json.loads(feedback_text)
+        
+        # Save feedback to database
+        if db is not None:
+            user = db['users'].find_one({"email": request.user_email})
+            if user:
+                feedback_doc = {
+                    "user_id": user['_id'],
+                    "email": request.user_email,
+                    "job_description": job_description[:500],
+                    "transcript": transcript,
+                    "duration_minutes": duration_minutes,
+                    "feedback": feedback_data,
+                    "timestamp": datetime.now(timezone.utc)
+                }
+                db['interview_feedback'].insert_one(feedback_doc)
+                
+                # Log activity
+                log_activity(db, request.user_email, "mock_interview", 
+                           f"Interview Feedback - Score: {feedback_data.get('overall_score', 0)}/10")
+        
+        return jsonify(feedback_data)
+        
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error: {e}")
+        return jsonify({"error": "Failed to parse AI response", "details": str(e)}), 500
+    except Exception as e:
+        print(f"Error generating feedback: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/improve-resume', methods=['POST'])
 @require_auth  # Add authentication
 def improve_resume():

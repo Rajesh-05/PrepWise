@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Vapi from '@vapi-ai/web';
+import '../styles/MockInterview.css';
 
 const MockInterview = () => {
     const [jd, setJd] = useState('');
@@ -8,6 +9,10 @@ const MockInterview = () => {
     const [interviewActive, setInterviewActive] = useState(false);
     const [vapi, setVapi] = useState(null);
     const [callStatus, setCallStatus] = useState('disconnected'); // disconnected, connecting, active
+    const [interviewData, setInterviewData] = useState({ messages: [], startTime: null, endTime: null });
+    const [feedback, setFeedback] = useState(null);
+    const [showFeedback, setShowFeedback] = useState(false);
+    const [loadingFeedback, setLoadingFeedback] = useState(false);
 
     // Initialize Vapi
     useEffect(() => {
@@ -27,6 +32,9 @@ const MockInterview = () => {
             setCallStatus('active');
             setInterviewActive(true);
             setLoading(false);
+            setInterviewData({ messages: [], startTime: new Date(), endTime: null });
+            setFeedback(null);
+            setShowFeedback(false);
         };
 
         const handleCallEnd = () => {
@@ -34,11 +42,18 @@ const MockInterview = () => {
             setCallStatus('disconnected');
             setInterviewActive(false);
             setLoading(false);
+            setInterviewData(prev => ({ ...prev, endTime: new Date() }));
+            // Automatically trigger feedback generation
+            setTimeout(() => generateFeedback(), 1000);
         };
 
         const handleMessage = (message) => {
-            // Placeholder: Future implementation can store conversation history here
-            // console.log("Message received:", message);
+            console.log("Message received:", message);
+            // Capture all messages for transcript
+            setInterviewData(prev => ({
+                ...prev,
+                messages: [...prev.messages, message]
+            }));
         };
 
         const handleError = (error) => {
@@ -123,6 +138,62 @@ const MockInterview = () => {
                 setJd(ev.target.result);
             };
             reader.readAsText(file);
+        }
+    };
+
+    const generateFeedback = async () => {
+        if (interviewData.messages.length === 0) {
+            console.log('No interview data to analyze');
+            return;
+        }
+
+        setLoadingFeedback(true);
+        setShowFeedback(true);
+
+        try {
+            // Build transcript from messages
+            const transcript = interviewData.messages
+                .map(msg => {
+                    const role = msg.type === 'transcript' ? 
+                        (msg.role === 'assistant' ? 'Interviewer' : 'Candidate') : 
+                        msg.type;
+                    const text = msg.transcript || msg.content || JSON.stringify(msg);
+                    return `${role}: ${text}`;
+                })
+                .join('\n\n');
+
+            // Calculate duration
+            const duration = interviewData.endTime && interviewData.startTime ?
+                (interviewData.endTime - interviewData.startTime) / 1000 / 60 : 0;
+
+            const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+            const response = await fetch('/api/vapi/generate-feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    jobDescription: jd,
+                    transcript: transcript,
+                    duration: Math.round(duration)
+                })
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || 'Failed to generate feedback');
+            }
+
+            const feedbackData = await response.json();
+            setFeedback(feedbackData);
+
+        } catch (err) {
+            console.error('Failed to generate feedback:', err);
+            alert(`Failed to generate feedback: ${err.message}`);
+            setShowFeedback(false);
+        } finally {
+            setLoadingFeedback(false);
         }
     };
 
@@ -231,6 +302,17 @@ const MockInterview = () => {
                                 <span role="img" aria-label="stop">⏹️</span> Stop Interview
                             </button>
                         )}
+                        {!interviewActive && interviewData.messages.length > 0 && (
+                            <button
+                                className="feedback-button enhanced-btn"
+                                type="button"
+                                onClick={generateFeedback}
+                                disabled={loadingFeedback}
+                                style={{ flex: 1, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', padding: '0.8rem', borderRadius: 8, fontWeight: 600, fontSize: '1.1rem', border: 'none', boxShadow: '0 2px 8px rgba(102,126,234,0.3)', cursor: loadingFeedback ? 'not-allowed' : 'pointer', opacity: loadingFeedback ? 0.6 : 1 }}
+                            >
+                                <span>{loadingFeedback ? '⏳ Analyzing...' : '📊 Get Feedback'}</span>
+                            </button>
+                        )}
                     </div>
                 </form>
 
@@ -248,7 +330,177 @@ const MockInterview = () => {
                     50% { transform: scale(1.1); opacity: 0.8; }
                     100% { transform: scale(1); opacity: 1; }
                 }
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
             `}</style>
+
+            {/* Feedback Modal/Panel */}
+            {showFeedback && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.7)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                    padding: '2rem',
+                    overflowY: 'auto'
+                }}>
+                    <div style={{
+                        backgroundColor: 'white',
+                        borderRadius: '12px',
+                        maxWidth: '800px',
+                        width: '100%',
+                        maxHeight: '90vh',
+                        overflowY: 'auto',
+                        padding: '2rem',
+                        position: 'relative'
+                    }}>
+                        <button
+                            onClick={() => setShowFeedback(false)}
+                            style={{
+                                position: 'absolute',
+                                top: '1rem',
+                                right: '1rem',
+                                background: 'none',
+                                border: 'none',
+                                fontSize: '24px',
+                                cursor: 'pointer',
+                                color: '#666'
+                            }}
+                        >
+                            ×
+                        </button>
+
+                        <h2 style={{ marginBottom: '1.5rem', color: '#333' }}>📊 Interview Feedback</h2>
+
+                        {loadingFeedback ? (
+                            <div style={{ textAlign: 'center', padding: '3rem' }}>
+                                <div className="spinner" style={{
+                                    border: '4px solid #f3f3f3',
+                                    borderTop: '4px solid #667eea',
+                                    borderRadius: '50%',
+                                    width: '50px',
+                                    height: '50px',
+                                    animation: 'spin 1s linear infinite',
+                                    margin: '0 auto 1rem'
+                                }}></div>
+                                <p>Analyzing your interview performance...</p>
+                            </div>
+                        ) : feedback ? (
+                            <div>
+                                {/* Score Cards */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+                                    <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', padding: '1.5rem', borderRadius: '8px', textAlign: 'center' }}>
+                                        <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{feedback.overall_score}/10</div>
+                                        <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>Overall Score</div>
+                                    </div>
+                                    <div style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', color: 'white', padding: '1.5rem', borderRadius: '8px', textAlign: 'center' }}>
+                                        <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{feedback.communication_score}/10</div>
+                                        <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>Communication</div>
+                                    </div>
+                                    <div style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', color: 'white', padding: '1.5rem', borderRadius: '8px', textAlign: 'center' }}>
+                                        <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{feedback.technical_score}/10</div>
+                                        <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>Technical</div>
+                                    </div>
+                                    <div style={{ background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)', color: 'white', padding: '1.5rem', borderRadius: '8px', textAlign: 'center' }}>
+                                        <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{feedback.confidence_score}/10</div>
+                                        <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>Confidence</div>
+                                    </div>
+                                </div>
+
+                                {/* Summary */}
+                                <div style={{ backgroundColor: '#f8f9fa', padding: '1.5rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                                    <h3 style={{ marginBottom: '0.5rem', color: '#333' }}>Summary</h3>
+                                    <p style={{ color: '#666', lineHeight: '1.6' }}>{feedback.summary}</p>
+                                </div>
+
+                                {/* Detailed Feedback */}
+                                <div style={{ marginBottom: '1.5rem' }}>
+                                    <h3 style={{ marginBottom: '0.5rem', color: '#333' }}>Detailed Analysis</h3>
+                                    <p style={{ color: '#666', lineHeight: '1.6' }}>{feedback.detailed_feedback}</p>
+                                </div>
+
+                                {/* Strengths */}
+                                <div style={{ marginBottom: '1.5rem' }}>
+                                    <h3 style={{ marginBottom: '0.5rem', color: '#333' }}>✅ Strengths</h3>
+                                    <ul style={{ paddingLeft: '1.5rem' }}>
+                                        {feedback.strengths?.map((strength, idx) => (
+                                            <li key={idx} style={{ color: '#28a745', marginBottom: '0.5rem' }}>{strength}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+
+                                {/* Weaknesses */}
+                                <div style={{ marginBottom: '1.5rem' }}>
+                                    <h3 style={{ marginBottom: '0.5rem', color: '#333' }}>⚠️ Areas for Improvement</h3>
+                                    <ul style={{ paddingLeft: '1.5rem' }}>
+                                        {feedback.weaknesses?.map((weakness, idx) => (
+                                            <li key={idx} style={{ color: '#dc3545', marginBottom: '0.5rem' }}>{weakness}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+
+                                {/* Recommended Actions */}
+                                <div style={{ backgroundColor: '#e7f3ff', padding: '1.5rem', borderRadius: '8px' }}>
+                                    <h3 style={{ marginBottom: '0.5rem', color: '#0066cc' }}>🎯 Recommended Actions</h3>
+                                    <ul style={{ paddingLeft: '1.5rem' }}>
+                                        {feedback.recommended_actions?.map((action, idx) => (
+                                            <li key={idx} style={{ color: '#0066cc', marginBottom: '0.5rem' }}>{action}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
+                                    <button
+                                        onClick={() => {
+                                            setShowFeedback(false);
+                                            setJd('');
+                                            setInterviewData({ messages: [], startTime: null, endTime: null });
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '0.75rem 1.5rem',
+                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        Start New Interview
+                                    </button>
+                                    <button
+                                        onClick={() => window.location.href = '/dashboard'}
+                                        style={{
+                                            flex: 1,
+                                            padding: '0.75rem 1.5rem',
+                                            background: '#f8f9fa',
+                                            color: '#333',
+                                            border: '1px solid #ddd',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        View Dashboard
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <p style={{ textAlign: 'center', color: '#666' }}>No feedback available</p>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
