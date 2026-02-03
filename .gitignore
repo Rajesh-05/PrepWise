@@ -1,7 +1,7 @@
 node_modules/
 build/
-/.env
-Backend/.env
+/.env.example1
+Backend/.env.example
 *.pyc
 __pycache__/
 .vscode/
@@ -19,7 +19,7 @@ coverage/
 
 # production
 /build
-
+app.log
 # misc
 .DS_Store
 .env

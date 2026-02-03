@@ -15,6 +15,24 @@ Collections:
 
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
+from bson import ObjectId
+
+
+def serialize_doc(doc):
+    """
+    Convert MongoDB ObjectId to string recursively.
+    Handles nested documents and lists for JSON serialization.
+    """
+    if isinstance(doc, list):
+        return [serialize_doc(d) for d in doc]
+    if isinstance(doc, dict):
+        return {
+            k: str(v) if isinstance(v, ObjectId) 
+            else serialize_doc(v) if isinstance(v, (dict, list)) 
+            else v 
+            for k, v in doc.items()
+        }
+    return doc
 
 # MongoDB Schema Definitions (for documentation)
 
@@ -98,11 +116,33 @@ RESUME_ACTIVITIES_SCHEMA = {
     "email": "string",
     "activity_type": "string (evaluation, improvement, build)",
     "resume_filename": "string",
-    "job_description": "string (optional)",
-    "ats_score": "int (0-100, for evaluations)",
+    "job_description": "string",
+    "ats_score": "int",
     "missing_keywords": "array of strings",
     "suggestions": "string",
-    "resume_data": "object",
+    "resume_data": "string",
+    "timestamp": "datetime",
+}
+
+INTERVIEW_FEEDBACK_SCHEMA = {
+    "_id": "ObjectId",
+    "user_id": "ObjectId (ref: users._id)",
+    "email": "string",
+    "job_description": "string",
+    "transcript": "string",
+    "duration_minutes": "float",
+    "feedback": {
+        "overall_score": "int (1-10)",
+        "communication_score": "int (1-10)",
+        "technical_score": "int (1-10)",
+        "confidence_score": "int (1-10)",
+        "strengths": "array of strings",
+        "weaknesses": "array of strings",
+        "improvement_areas": "array of strings",
+        "summary": "string",
+        "detailed_feedback": "string",
+        "recommended_actions": "array of strings"
+    },
     "timestamp": "datetime",
 }
 

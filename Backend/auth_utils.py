@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import os
 from bson import ObjectId
 
-JWT_SECRET = os.getenv("JWT_SECRET") or "jwtsecret"
+JWT_SECRET = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "jwtsecret"
 
 # Token blacklist (in production, use Redis)
 token_blacklist = set()
