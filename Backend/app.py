@@ -837,29 +837,37 @@ def create_vapi_assistant():
     """
 
     try:
+        payload = {
+            "name": "AI Interviewer",
+            "firstMessage": "Hello! I'm your AI interviewer. Let's begin the mock interview. Can you start by telling me about yourself?",
+            "model": {
+                "provider": "openai",
+                "model": "gpt-3.5-turbo",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    }
+                ]
+            },
+            "voice": {
+                "provider": "11labs",
+                "voiceId": "21m00Tcm4TlvDq8ikWAM"
+            }
+        }
+        
+        print("=" * 80)
+        print("VAPI API Request Payload:")
+        print(json.dumps(payload, indent=2))
+        print("=" * 80)
+        
         response = requests.post(
             "https://api.vapi.ai/assistant",
             headers={
                 "Authorization": f"Bearer {VAPI_PRIVATE_KEY}",
                 "Content-Type": "application/json"
             },
-            json={
-                "name": "Generic AI Interviewer", 
-                "model": {
-                    "provider": "openai",
-                    "model": "gpt-3.5-turbo",
-                    "messages": [{"role": "system", "content": system_prompt}]
-                },
-                "voice": {
-                    "provider": "openai",
-                    "voiceId": "alloy"
-                },
-                "transcriber": {
-                    "provider": "deepgram",
-                    "model": "nova-2",
-                    "language": "en-US"
-                }
-            },
+            json=payload,
             timeout=10
         )
         if response.status_code != 201:
