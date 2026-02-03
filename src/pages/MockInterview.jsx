@@ -11,7 +11,7 @@ const MockInterview = () => {
 
     // Initialize Vapi
     useEffect(() => {
-        const vapiInstance = new Vapi(process.env.REACT_APP_VAPI_PUBLIC_KEY || process.env.VAPI_PUBLIC_KEY);
+        const vapiInstance = new Vapi(process.env.REACT_APP_VAPI_PUBLIC_KEY);
         setVapi(vapiInstance);
         return () => {
             vapiInstance.stop();

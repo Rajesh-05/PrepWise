@@ -99,8 +99,21 @@ const Dashboard = () => {
         <div className="dashboard-container">
             <div className="dashboard-header">
                 <div className="user-welcome">
-                    {stats?.user?.picture && stats.user.picture.trim() !== '' ? (
-                        <img src={stats.user.picture} alt="Profile" className="dashboard-profile-pic" />
+                    {stats?.user?.picture && stats.user.picture.trim() !== '' && stats.user.picture.trim() !== 'null' && stats.user.picture.trim() !== 'undefined' ? (
+                        <img
+                            src={stats.user.picture}
+                            alt="Profile"
+                            className="dashboard-profile-pic"
+                            onError={e => {
+                                e.target.onerror = null;
+                                e.target.style.display = 'none';
+                                const placeholder = document.createElement('div');
+                                placeholder.className = 'dashboard-profile-pic avatar-placeholder';
+                                placeholder.setAttribute('aria-label', 'Default profile avatar');
+                                placeholder.innerHTML = `<svg class='avatar-icon' viewBox='0 0 96 96' fill='none' xmlns='http://www.w3.org/2000/svg' style='width:90px;height:90px;display:block;'><circle cx='48' cy='48' r='48' fill='#e5e7eb'/><path d='M48 52c7.18 0 13-5.82 13-13s-5.82-13-13-13-13 5.82-13 13 5.82 13 13 13zm0 4c-8.84 0-26 4.42-26 13.25V76h52v-6.75C74 60.42 56.84 56 48 56z' fill='#9ca3af'/></svg>`;
+                                e.target.parentNode.replaceChild(placeholder, e.target);
+                            }}
+                        />
                     ) : (
                         <div className="dashboard-profile-pic avatar-placeholder" aria-label="Default profile avatar">
                             <svg
@@ -188,19 +201,7 @@ const Dashboard = () => {
                         <h3 style={{ margin: '0', fontSize: '2.1rem', fontWeight: 700, color: '#dc2626' }}>{stats.mock_interviews.total_interviews}</h3>
                         <p style={{ margin: '0.2rem 0 0.1rem', fontWeight: 500 }}>Mock Interviews</p>
                         {/* Show recent mock interview interactions summary */}
-                        {stats.mock_interviews.recent_interviews && stats.mock_interviews.recent_interviews.length > 0 && (
-                            <div style={{ marginTop: '0.7rem', textAlign: 'left' }}>
-                                <div style={{ fontWeight: 600, fontSize: '1.05rem', color: '#dc2626', marginBottom: '0.2rem' }}>Recent Interactions:</div>
-                                {stats.mock_interviews.recent_interviews.slice(-3).reverse().map((interview, idx) => (
-                                    <div key={idx} style={{ marginBottom: '0.3rem', background: '#fef2f2', padding: '0.4em 0.7em', borderRadius: '8px' }}>
-                                        <div style={{ fontWeight: 500 }}>{interview.interview_type} Interview</div>
-                                        <div style={{ fontSize: '0.97em', color: '#64748b' }}>{formatDateTime(interview.timestamp)}</div>
-                                        {interview.overall_rating && <div>Rating: <b>{interview.overall_rating}/10</b></div>}
-                                        {interview.feedback && <div style={{ fontStyle: 'italic', color: '#7f1d1d' }}>{interview.feedback}</div>}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+
                     </div>
                 </div>
                 <div className="stat-card clickable" onClick={() => handleStatClick('resume')} title="Show Resume Activities" style={{ cursor: 'pointer', background: 'linear-gradient(135deg,#f0fdfa 0%,#e0e7ef 100%)', borderRadius: '18px', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', padding: '2rem 1.2rem', transition: 'transform 0.12s,box-shadow 0.12s', border: '1.5px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
