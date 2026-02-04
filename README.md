@@ -186,7 +186,6 @@ npm install
 # Create .env file in root directory
 # Required variables:
 # REACT_APP_VAPI_PUBLIC_KEY=your_vapi_public_key
-# VAPI_API_KEY=your_vapi_api_key
 ```
 
 #### **3. Backend Setup**
@@ -213,8 +212,6 @@ pip install -r requirements.txt
 # MONGODB_DBNAME=prepwise
 # JWT_SECRET=your_jwt_secret
 # JWT_EXPIRES_MIN=120
-# VAPI_API_KEY=your_vapi_api_key
-# REACT_APP_VAPI_PUBLIC_KEY=your_vapi_public_key
 # GOOGLE_OAUTH_CLIENT_ID=your_google_oauth_client_id
 # GOOGLE_OAUTH_CLIENT_SECRET=your_google_oauth_client_secret
 ```
@@ -568,7 +565,6 @@ Create `.env` files in both root and Backend directories:
 **Root `.env` (Frontend):**
 ```
 REACT_APP_VAPI_PUBLIC_KEY=your_vapi_public_key
-VAPI_API_KEY=your_vapi_api_key
 ```
 
 **Backend `.env`:**
@@ -583,10 +579,6 @@ MONGODB_DBNAME=prepwise
 # JWT Configuration
 JWT_SECRET=your_jwt_secret
 JWT_EXPIRES_MIN=120
-
-# Vapi AI Configuration
-VAPI_API_KEY=your_vapi_api_key
-REACT_APP_VAPI_PUBLIC_KEY=your_vapi_public_key
 
 # Google OAuth Configuration
 GOOGLE_OAUTH_CLIENT_ID=your_google_oauth_client_id

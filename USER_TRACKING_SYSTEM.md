@@ -215,7 +215,6 @@ JWT_SECRET=your_jwt_secret
 JWT_EXPIRES_MIN=120
 GOOGLE_OAUTH_CLIENT_ID=your_google_client_id
 GOOGLE_OAUTH_CLIENT_SECRET=your_google_client_secret
-VAPI_API_KEY=your_vapi_key
 ```
 
 ## 🔐 Google Cloud Console Setup
