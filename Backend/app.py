@@ -868,21 +868,21 @@ def create_vapi_assistant():
     if not job_description:
         return jsonify({"error": "No JD provided"}), 400
 
-    system_prompt = f"""
-    You are an expert AI Interviewer acting as a Hiring Manager.
-    Your goal is to conduct a professional yet friendly mock interview based on the following Job Description (JD).
+    # Truncate JD to avoid hitting token limits
+    jd_text = job_description[:1500] + "..." if len(job_description) > 1500 else job_description
     
-    Job Description:
-    {job_description}
-
-    Instructions:
-    1. Start by welcoming the candidate and mentioning the role they are applying for based on the JD.
-    2. Ask one question at a time. Wait for the candidate's response.
-    3. Keep your questions relevant to the skills and requirements mentioned in the JD.
-    4. If the candidate answers well, move to a slightly harder or different topic. If they struggle, offer a small hint or move to a simpler question.
-    5. Be encouraging but professional.
-    6. Close the interview politely when you feel you have enough information or if the candidate asks to stop.
-    """
+    system_prompt = (
+        "You are an expert AI Interviewer acting as a Hiring Manager. "
+        "Your goal is to conduct a professional mock interview based on this Job Description:\n\n"
+        f"{jd_text}\n\n"
+        "Instructions:\n"
+        "1. Welcome the candidate and mention the role.\n"
+        "2. Ask ONE question at a time. Wait for response.\n"
+        "3. Keep questions relevant to the JD.\n"
+        "4. Adjust difficulty based on candidate's answers.\n"
+        "5. Be encouraging but professional.\n"
+        "6. Close politely when done."
+    )
 
     try:
         payload = {
@@ -899,8 +899,8 @@ def create_vapi_assistant():
                 ]
             },
             "voice": {
-                "provider": "11labs",
-                "voiceId": "21m00Tcm4TlvDq8ikWAM"
+                "provider": "azure",
+                "voiceId": "en-US-JennyNeural"
             }
         }
         
@@ -990,10 +990,11 @@ Provide constructive, actionable feedback. Be encouraging but honest.
         response = requests.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}",
             json={
-                "contents": [{"parts": [{"text": prompt}]}],
+                "contents": [{"parts": [{"text": prompt + "\n\nIMPORTANT: Return PURE JSON only. Do not use markdown code blocks (```json). Do not add any conversational text."}]}],
                 "generationConfig": {
-                    "temperature": 0.7,
+                    "temperature": 0.5,
                     "maxOutputTokens": 2048,
+                    "responseMimeType": "application/json"
                 }
             },
             timeout=30
@@ -1020,13 +1021,26 @@ Provide constructive, actionable feedback. Be encouraging but honest.
         if feedback_text is None:
             return jsonify({"error": "Gemini response missing 'text' in first part"}), 500
         
-        # Clean markdown fences if present
-        if feedback_text.strip().startswith('```'):
-            feedback_text = feedback_text.strip().split('```')[-2] if '```' in feedback_text.strip() else feedback_text.strip()
-            if feedback_text.strip().startswith('json'):
-                feedback_text = feedback_text.strip()[4:].strip()
-        
-        feedback_data = json.loads(feedback_text)
+        # Log the raw text for debugging
+        logger.debug(f"Raw Gemini feedback text: {feedback_text}")
+
+        # Robust JSON extraction
+        try:
+            # First try direct parse
+            feedback_data = json.loads(feedback_text)
+        except json.JSONDecodeError:
+            # Try to find JSON block using regex
+            import re
+            json_match = re.search(r'\{.*\}', feedback_text, re.DOTALL)
+            if json_match:
+                try:
+                    feedback_data = json.loads(json_match.group(0))
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse extracted JSON block: {e}")
+                    raise e
+            else:
+                logger.error("No JSON object found in feedback text")
+                raise json.JSONDecodeError("No JSON object found", feedback_text, 0)
         
         # Save feedback to database
         if db is not None:
