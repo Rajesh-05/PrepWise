@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Vapi from '@vapi-ai/web';
 import '../styles/MockInterview.css';
 
@@ -13,6 +13,10 @@ const MockInterview = () => {
     const [feedback, setFeedback] = useState(null);
     const [showFeedback, setShowFeedback] = useState(false);
     const [loadingFeedback, setLoadingFeedback] = useState(false);
+
+    // Keep the latest generateFeedback function in a ref to avoid stale closures in event listeners
+    // without causing the effect to re-run on every state change.
+    const generateFeedbackRef = useRef(null);
 
     // Initialize Vapi
     useEffect(() => {
@@ -43,8 +47,12 @@ const MockInterview = () => {
             setInterviewActive(false);
             setLoading(false);
             setInterviewData(prev => ({ ...prev, endTime: new Date() }));
-            // Automatically trigger feedback generation
-            setTimeout(() => generateFeedback(), 1000);
+            // Automatically trigger feedback generation using the latest function from ref
+            setTimeout(() => {
+                if (generateFeedbackRef.current) {
+                    generateFeedbackRef.current();
+                }
+            }, 1000);
         };
 
         const handleMessage = (message) => {
@@ -154,8 +162,8 @@ const MockInterview = () => {
             // Build transcript from messages
             const transcript = interviewData.messages
                 .map(msg => {
-                    const role = msg.type === 'transcript' ? 
-                        (msg.role === 'assistant' ? 'Interviewer' : 'Candidate') : 
+                    const role = msg.type === 'transcript' ?
+                        (msg.role === 'assistant' ? 'Interviewer' : 'Candidate') :
                         msg.type;
                     const text = msg.transcript || msg.content || JSON.stringify(msg);
                     return `${role}: ${text}`;
@@ -196,6 +204,11 @@ const MockInterview = () => {
             setLoadingFeedback(false);
         }
     };
+
+    // Keep the ref updated with the latest function
+    useEffect(() => {
+        generateFeedbackRef.current = generateFeedback;
+    });
 
     return (
         <div
