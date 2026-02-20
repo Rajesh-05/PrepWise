@@ -83,17 +83,17 @@ const Login = () => {
                         'Authorization': `Bearer ${sessionToken}`
                     }
                 })
-                .then(res => {
-                    console.log('Login.jsx: /auth/me response:', res.data);
-                    localStorage.setItem('auth_user', JSON.stringify(res.data.user));
-                    setToast({ show: true, message: 'Login successful with Google!', type: 'success' });
-                    setTimeout(() => navigate('/', { replace: true }), 1000);
-                })
-                .catch(err => {
-                    console.error('Login.jsx: Error fetching user after OAuth:', err);
-                    setToast({ show: true, message: 'Failed to complete Google login', type: 'error' });
-                    setTimeout(() => navigate('/login'), 1500);
-                });
+                    .then(res => {
+                        console.log('Login.jsx: /auth/me response:', res.data);
+                        localStorage.setItem('auth_user', JSON.stringify(res.data.user));
+                        setToast({ show: true, message: 'Login successful with Google!', type: 'success' });
+                        setTimeout(() => navigate('/', { replace: true }), 1000);
+                    })
+                    .catch(err => {
+                        console.error('Login.jsx: Error fetching user after OAuth:', err);
+                        setToast({ show: true, message: 'Failed to complete Google login', type: 'error' });
+                        setTimeout(() => navigate('/login'), 1500);
+                    });
             }
         }
     }, [navigate]);
@@ -112,33 +112,33 @@ const Login = () => {
                 <div className="login-branding">
                     <div className="branding-content">
                         <div className="logo-section">
-                            <div className="logo-icon">🤖</div>
-                            <h1>PrepWise.AI</h1>
-                            <p>Your AI Career Companion</p>
+                            <div className="logo-icon">🎓</div>
+                            <h1>PrepWise</h1>
+                            <p>Your Career Toolkit</p>
                         </div>
 
                         <div className="branding-features">
                             <div className="feature-item">
-                                <div className="feature-icon">🎯</div>
+                                <div className="feature-icon">🎤</div>
                                 <div className="feature-text">
-                                    <h3>AI-Powered Interview Prep</h3>
-                                    <p>Practice with intelligent AI that adapts to your skill level</p>
+                                    <h3>Interview Practice</h3>
+                                    <p>Practice with a coach that gives you honest, detailed feedback</p>
                                 </div>
                             </div>
 
                             <div className="feature-item">
-                                <div className="feature-icon">📝</div>
+                                <div className="feature-icon">📋</div>
                                 <div className="feature-text">
-                                    <h3>Smart Resume Builder</h3>
-                                    <p>Create ATS-optimized resumes with AI suggestions</p>
+                                    <h3>Resume Coach</h3>
+                                    <p>Build ATS-friendly resumes tailored to each job description</p>
                                 </div>
                             </div>
 
                             <div className="feature-item">
-                                <div className="feature-icon">🏢</div>
+                                <div className="feature-icon">📚</div>
                                 <div className="feature-text">
-                                    <h3>Company Question Bank</h3>
-                                    <p>Access real interview questions from top companies</p>
+                                    <h3>Question Bank</h3>
+                                    <p>Real questions from top companies, with model answers</p>
                                 </div>
                             </div>
                         </div>

@@ -1,19 +1,24 @@
+/* ===================================================
+   PrepWise Footer — Campus to Career
+   =================================================== */
 .footer {
-    background: #1e293b;
-    color: #e2e8f0;
+    background: var(--color-navy, #0F2D5C);
+    color: rgba(255, 255, 255, 0.82);
     padding: 5rem 0 2rem;
-    border-top: 1px solid #334155;
+    border-top: none;
     position: relative;
 }
 
+/* Amber accent stripe at top */
 .footer::before {
     content: '';
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, #10b981, transparent);
+    height: 3px;
+    background: linear-gradient(90deg, transparent 10%, #F59E0B 50%, transparent 90%);
+    opacity: 0.85;
 }
 
 .footer-container {
@@ -31,29 +36,31 @@
 
 .footer-section h3 {
     color: white;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1.25rem;
     font-size: 1.6rem;
-    font-weight: 700;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    letter-spacing: -0.01em;
+    font-weight: 800;
+    font-family: 'Sora', var(--font-display, sans-serif);
+    letter-spacing: -0.02em;
 }
 
 .footer-section h4 {
     color: white;
-    margin-bottom: 1.5rem;
-    font-size: 1.1rem;
-    font-weight: 600;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    margin-bottom: 1.25rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    font-family: 'DM Sans', var(--font-body, sans-serif);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.08em;
+    opacity: 0.9;
 }
 
 .footer-section p {
-    color: #94a3b8;
+    color: rgba(255, 255, 255, 0.65);
     line-height: 1.7;
     margin-bottom: 1.5rem;
-    font-size: 1rem;
+    font-size: 0.96rem;
     max-width: 400px;
+    font-family: 'DM Sans', sans-serif;
 }
 
 .footer-section ul {
@@ -62,16 +69,16 @@
 }
 
 .footer-section ul li {
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.65rem;
 }
 
 .footer-section ul li a {
-    color: #94a3b8;
+    color: rgba(255, 255, 255, 0.62);
     text-decoration: none;
-    transition: all 0.3s ease;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 0.95rem;
-    padding: 0.25rem 0;
+    transition: all 0.25s ease;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.92rem;
+    padding: 0.2rem 0;
     display: inline-block;
     position: relative;
 }
@@ -83,13 +90,13 @@
     left: 0;
     width: 0;
     height: 1px;
-    background: #10b981;
-    transition: width 0.3s ease;
+    background: #F59E0B;
+    transition: width 0.25s ease;
 }
 
 .footer-section ul li a:hover {
-    color: #10b981;
-    transform: translateX(5px);
+    color: #F59E0B;
+    transform: translateX(4px);
 }
 
 .footer-section ul li a:hover::before {
@@ -98,7 +105,7 @@
 
 .social-links {
     display: flex;
-    gap: 1rem;
+    gap: 0.75rem;
     margin-top: 1rem;
 }
 
@@ -106,72 +113,40 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 44px;
-    height: 44px;
-    background: #334155;
-    color: #e2e8f0;
+    width: 42px;
+    height: 42px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.75);
     text-decoration: none;
     border-radius: 10px;
-    transition: all 0.3s ease;
-    font-size: 1.2rem;
-    position: relative;
-    overflow: hidden;
-}
-
-.social-links a::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-    transition: left 0.5s ease;
+    transition: all 0.25s ease;
+    font-size: 1.15rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .social-links a:hover {
-    background: #10b981;
-    color: white;
+    background: #F59E0B;
+    color: var(--color-navy, #0F2D5C);
     transform: translateY(-3px);
-    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3);
-}
-
-.social-links a:hover::before {
-    left: 100%;
+    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);
+    border-color: #F59E0B;
 }
 
 .footer-bottom {
-    border-top: 1px solid #334155;
-    padding-top: 2.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 2rem;
     text-align: center;
-    position: relative;
-}
-
-.footer-bottom::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100px;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, #10b981, transparent);
 }
 
 .footer-bottom p {
-    color: #94a3b8;
+    color: rgba(255, 255, 255, 0.45);
     margin: 0;
-    font-size: 0.9rem;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    font-weight: 400;
+    font-size: 0.88rem;
+    font-family: 'DM Sans', sans-serif;
 }
 
-/* Professional responsive breakpoints */
+/* Responsive */
 @media (max-width: 1200px) {
-    .footer-container {
-        max-width: 1200px;
-    }
-
     .footer-content {
         gap: 3rem;
     }
@@ -184,7 +159,7 @@
 
     .footer-content {
         grid-template-columns: 1fr;
-        gap: 3rem;
+        gap: 2.5rem;
         text-align: center;
     }
 
@@ -195,7 +170,7 @@
 
     .social-links {
         justify-content: center;
-        margin-top: 1.5rem;
+        margin-top: 1.25rem;
     }
 
     .footer-section ul li a:hover {
@@ -209,7 +184,7 @@
     }
 
     .footer-content {
-        gap: 2.5rem;
+        gap: 2rem;
     }
 
     .footer-section h3 {
@@ -217,16 +192,16 @@
     }
 
     .footer-section h4 {
-        font-size: 1rem;
+        font-size: 0.8rem;
     }
 
     .social-links {
-        gap: 0.75rem;
+        gap: 0.65rem;
     }
 
     .social-links a {
-        width: 40px;
-        height: 40px;
-        font-size: 1.1rem;
+        width: 38px;
+        height: 38px;
+        font-size: 1rem;
     }
 }

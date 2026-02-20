@@ -153,229 +153,217 @@ const ResumeEvaluator = () => {
 
     return (
         <div className="resume-evaluator-page">
-            <div className="eval-card">
-                {/* Tab Switcher at top */}
-                <div className="tab-switcher" style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
-                    <button
-                        className={activeTab === 'ats' ? 'active' : ''}
-                        style={{
-                            padding: '10px 32px',
-                            borderRadius: '24px 0 0 24px',
-                            border: '1px solid #ccc',
-                            background: activeTab === 'ats' ? '#fff' : '#f3f3f3',
-                            fontWeight: activeTab === 'ats' ? 'bold' : 'normal',
-                            boxShadow: activeTab === 'ats' ? '0 2px 8px rgba(0,0,0,0.04)' : 'none',
-                            cursor: 'pointer',
-                            outline: 'none',
-                            zIndex: 2
-                        }}
-                        onClick={() => setActiveTab('ats')}
-                    >Evaluator</button>
-                    <button
-                        className={activeTab === 'improve' ? 'active' : ''}
-                        style={{
-                            padding: '10px 32px',
-                            borderRadius: '0 24px 24px 0',
-                            border: '1px solid #ccc',
-                            borderLeft: 'none',
-                            background: activeTab === 'improve' ? '#fff' : '#f3f3f3',
-                            fontWeight: activeTab === 'improve' ? 'bold' : 'normal',
-                            boxShadow: activeTab === 'improve' ? '0 2px 8px rgba(0,0,0,0.04)' : 'none',
-                            cursor: 'pointer',
-                            outline: 'none',
-                            zIndex: 2
-                        }}
-                        onClick={() => setActiveTab('improve')}
-                    >Resume Improver</button>
-                </div>
-                <div className="header-with-logo">
-                    <img src={process.env.PUBLIC_URL + '/Images/cv.png'} alt="CV" className="cv-logo" />
-                    <h2>{activeTab === 'ats' ? 'Resume Evaluator' : 'Resume Improver'}</h2>
-                </div>
-                <p className="subtitle">
-                    {activeTab === 'ats'
-                        ? 'Get AI-powered insights on your resume\'s effectiveness and compatibility with job requirements.'
-                        : 'Get personalized AI-powered suggestions to improve your resume. Just upload your resume PDF and receive actionable feedback on structure, skills, achievements, and more. No job description required!'}
-                </p>
+            <div className="eval-layout">
 
-                {/* ATS Tab */}
-                {activeTab === 'ats' && (
-                    <>
-                        <div className="feature-tabs">
-                            <div className="tab-card">
-                                <div className="tab-icon">🎯</div>
-                                <h3>ATS Compatibility</h3>
-                                <p>Check if your resume passes Applicant Tracking Systems.</p>
-                            </div>
-                            <div className="tab-card">
-                                 <div className="tab-icon">⭐</div>
-                                <h3>Skills Matching</h3>
-                                <p>See how well your skills align with job requirements.</p>
-                            </div>
-                            <div className="tab-card">
-                                  <div className="tab-icon">🤖</div>
-                                <h3>AI-Powered Feedback</h3>
-                                <p>Get detailed suggestions for improvement.</p>
-                            </div>
-                        </div>
-                        <form className="eval-form" onSubmit={handleSubmit}>
-                            <div className="field resume-field">
-                                <label className="field-label">Upload Resume (PDF)</label>
-                                <div
-                                    className={`file-picker ${isResumeDragging ? 'dragging' : ''}`}
-                                    onDrop={(e) => handleDrop(e, setAtsResumeFile, setResumeError, setIsResumeDragging)}
-                                    onDragOver={handleDragOver}
-                                    onDragEnter={(e) => handleDragEnter(e, setIsResumeDragging)}
-                                    onDragLeave={(e) => handleDragLeave(e, setIsResumeDragging)}
-                                >
-                                    <input
-                                        type="file"
-                                        accept=".pdf"
-                                        onChange={(e) => handleFileChange(e, setAtsResumeFile, setResumeError, setIsResumeDragging)}
-                                    />
-                                    {atsResumeFile ? (
-                                        <div className="file-name">
-                                            <i className="fas fa-file-pdf"></i> {atsResumeFile.name}
-                                        </div>
-                                    ) : (
-                                        <p>Drag & Drop your resume here or click to browse</p>
-                                    )}
-                                </div>
-                                {resumeError && <div className="error-message">{resumeError}</div>}
-                            </div>
-                            <div className="field jd-field">
-                                <label className="field-label">Job Description</label>
-                                <div className="jd-mode-toggle">
-                                    <button
-                                        type="button"
-                                        className={jdMode === 'text' ? 'active' : ''}
-                                        onClick={() => {
-                                            setJdMode('text');
-                                            setJdError('');
-                                        }}
-                                    >Paste Text</button>
-                                    <button
-                                        type="button"
-                                        className={jdMode === 'file' ? 'active' : ''}
-                                        onClick={() => {
-                                            setJdMode('file');
-                                            setJdError('');
-                                        }}
-                                    >Upload File</button>
-                                </div>
-                                {jdMode === 'text' ? (
-                                    <textarea
-                                        value={jdText}
-                                        onChange={(e) => {
-                                            setJdText(e.target.value);
-                                            setJdError('');
-                                        }}
-                                        placeholder="Paste job description here..."
-                                    />
-                                ) : (
+                {/* Left Sidebar */}
+                <div className="eval-sidebar">
+                    <h3 className="eval-sidebar-title">
+                        <img src={process.env.PUBLIC_URL + '/Images/cv.png'} alt="CV" className="cv-logo" />
+                        Resume Tools
+                    </h3>
+
+                    {/* Tab Switcher */}
+                    <div className="eval-tab-nav">
+                        <button
+                            className={`eval-tab-btn ${activeTab === 'ats' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('ats')}
+                        >
+                            🎯 Evaluator
+                        </button>
+                        <button
+                            className={`eval-tab-btn ${activeTab === 'improve' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('improve')}
+                        >
+                            ✏️ Resume Improver
+                        </button>
+                    </div>
+
+                    {/* Info blurb */}
+                    <div className="eval-info">
+                        {activeTab === 'ats' ? (
+                            <ul className="eval-info-list">
+                                <li>📄 Upload your resume PDF</li>
+                                <li>📋 Paste or upload the job description</li>
+                                <li>🤖 Get ATS match score + missing keywords</li>
+                                <li>💡 Receive AI-powered improvement tips</li>
+                            </ul>
+                        ) : (
+                            <ul className="eval-info-list">
+                                <li>📄 Upload your resume PDF</li>
+                                <li>🤖 AI scans structure, skills, achievements</li>
+                                <li>💡 Get instant actionable improvement tips</li>
+                                <li>✅ No job description required</li>
+                            </ul>
+                        )}
+                    </div>
+                </div>
+
+                {/* Right: Form card */}
+                <div className="eval-card">
+                    <div className="header-with-logo">
+                        <h2>{activeTab === 'ats' ? 'Resume Evaluator' : 'Resume Improver'}</h2>
+                    </div>
+                    <p className="subtitle">
+                        {activeTab === 'ats'
+                            ? 'Get AI-powered insights on your resume\'s effectiveness and compatibility with job requirements.'
+                            : 'Upload your resume and receive actionable feedback on structure, skills, achievements, and more. No job description required!'}
+                    </p>
+
+                    {/* ATS Tab */}
+                    {activeTab === 'ats' && (
+                        <>
+                            <form className="eval-form" onSubmit={handleSubmit}>
+                                <div className="field resume-field">
+                                    <label className="field-label">Upload Resume (PDF)</label>
                                     <div
-                                        className={`file-picker ${isJdDragging ? 'dragging' : ''}`}
-                                        onDrop={(e) => handleDrop(e, setJdFile, setJdError, setIsJdDragging)}
+                                        className={`file-picker ${isResumeDragging ? 'dragging' : ''}`}
+                                        onDrop={(e) => handleDrop(e, setAtsResumeFile, setResumeError, setIsResumeDragging)}
                                         onDragOver={handleDragOver}
-                                        onDragEnter={(e) => handleDragEnter(e, setIsJdDragging)}
-                                        onDragLeave={(e) => handleDragLeave(e, setIsJdDragging)}
+                                        onDragEnter={(e) => handleDragEnter(e, setIsResumeDragging)}
+                                        onDragLeave={(e) => handleDragLeave(e, setIsResumeDragging)}
                                     >
                                         <input
                                             type="file"
                                             accept=".pdf"
-                                            onChange={(e) => handleFileChange(e, setJdFile, setJdError, setIsJdDragging)}
+                                            onChange={(e) => handleFileChange(e, setAtsResumeFile, setResumeError, setIsResumeDragging)}
                                         />
-                                        {jdFile ? (
+                                        {atsResumeFile ? (
                                             <div className="file-name">
-                                                <i className="fas fa-file-pdf"></i> {jdFile.name}
+                                                <i className="fas fa-file-pdf"></i> {atsResumeFile.name}
                                             </div>
                                         ) : (
-                                            <p>Drag & Drop the JD here or click to browse</p>
+                                            <p>Drag & Drop your resume here or click to browse</p>
                                         )}
                                     </div>
-                                )}
-                                {jdError && <div className="error-message">{jdError}</div>}
-                            </div>
-                            <div className="form-actions">
-                                <button type="submit" className="btn-primary" disabled={loading}>
-                                    {loading ? 'Evaluating...' : 'Evaluate'}
-                                </button>
-                            </div>
-                        </form>
-                        {/* Evaluation Result */}
-                        {evalResult && (
-                            <div className="eval-result">
-                                <h3>Evaluation Result</h3>
-                                <div><strong>Match Score:</strong> {evalResult.match_score}</div>
-                                <div><strong>Summary:</strong> {evalResult.summary}</div>
-                                <div><strong>Missing Keywords:</strong> {Array.isArray(evalResult.missing_keywords) ? evalResult.missing_keywords.join(', ') : ''}</div>
-                            </div>
-                        )}
-                    </>
-                )}
-
-                {/* Resume Improver Tab */}
-                {activeTab === 'improve' && (
-                    <>
-                        <div className="feature-tabs">
-                            <div className="tab-card">
-                                <div className="tab-icon">📝</div>
-                                <h3>Resume Improver</h3>
-                                <p>Receive instant, actionable tips to boost your resume's impact.</p>
-                            </div>
-                        </div>
-                        <form className="eval-form" onSubmit={handleImproveSubmit}>
-                            <div className="field resume-field">
-                                <label className="field-label">Upload Resume (PDF)</label>
-                                <div
-                                    className={`file-picker ${isResumeDragging ? 'dragging' : ''}`}
-                                    onDrop={(e) => handleDrop(e, setImproveResumeFile, setResumeError, setIsResumeDragging)}
-                                    onDragOver={handleDragOver}
-                                    onDragEnter={(e) => handleDragEnter(e, setIsResumeDragging)}
-                                    onDragLeave={(e) => handleDragLeave(e, setIsResumeDragging)}
-                                >
-                                    <input
-                                        type="file"
-                                        accept=".pdf"
-                                        onChange={(e) => handleFileChange(e, setImproveResumeFile, setResumeError, setIsResumeDragging)}
-                                    />
-                                    {improveResumeFile ? (
-                                        <div className="file-name">
-                                            <i className="fas fa-file-pdf"></i> {improveResumeFile.name}
-                                        </div>
-                                    ) : (
-                                        <p>Drag & Drop your resume here or click to browse</p>
-                                    )}
+                                    {resumeError && <div className="error-message">{resumeError}</div>}
                                 </div>
-                                {resumeError && <div className="error-message">{resumeError}</div>}
-                            </div>
-                            <div className="form-actions">
-                                <button type="submit" className="btn-primary" disabled={improveLoading}>
-                                    {improveLoading ? 'Improving...' : 'Get Suggestions'}
-                                </button>
-                            </div>
-                        </form>
-                        {/* Improvement Result */}
-                        {improveResult && (
-                            <div className="eval-result">
-                                <h3>Resume Suggestions</h3>
-                                <ReactMarkdown>{
-                                    Array.isArray(improveResult.suggestions)
-                                        ? improveResult.suggestions.map(s => `- ${s}`).join('\n')
-                                        : improveResult.suggestions
-                                }</ReactMarkdown>
-                            </div>
-                        )}
-                    </>
-                )}
-                {/* Toast */}
-                {toastVisible && (
-                    <div className="toast" role="status" aria-live="polite">
-                        <div className="toast-text">{toastText}</div>
-                        <button className="toast-close" onClick={closeToast} aria-label="Close">✕</button>
-                    </div>
-                )}
-            </div>
+                                <div className="field jd-field">
+                                    <label className="field-label">Job Description</label>
+                                    <div className="jd-mode-toggle">
+                                        <button
+                                            type="button"
+                                            className={jdMode === 'text' ? 'active' : ''}
+                                            onClick={() => {
+                                                setJdMode('text');
+                                                setJdError('');
+                                            }}
+                                        >Paste Text</button>
+                                        <button
+                                            type="button"
+                                            className={jdMode === 'file' ? 'active' : ''}
+                                            onClick={() => {
+                                                setJdMode('file');
+                                                setJdError('');
+                                            }}
+                                        >Upload File</button>
+                                    </div>
+                                    {jdMode === 'text' ? (
+                                        <textarea
+                                            value={jdText}
+                                            onChange={(e) => {
+                                                setJdText(e.target.value);
+                                                setJdError('');
+                                            }}
+                                            placeholder="Paste job description here..."
+                                        />
+                                    ) : (
+                                        <div
+                                            className={`file-picker ${isJdDragging ? 'dragging' : ''}`}
+                                            onDrop={(e) => handleDrop(e, setJdFile, setJdError, setIsJdDragging)}
+                                            onDragOver={handleDragOver}
+                                            onDragEnter={(e) => handleDragEnter(e, setIsJdDragging)}
+                                            onDragLeave={(e) => handleDragLeave(e, setIsJdDragging)}
+                                        >
+                                            <input
+                                                type="file"
+                                                accept=".pdf"
+                                                onChange={(e) => handleFileChange(e, setJdFile, setJdError, setIsJdDragging)}
+                                            />
+                                            {jdFile ? (
+                                                <div className="file-name">
+                                                    <i className="fas fa-file-pdf"></i> {jdFile.name}
+                                                </div>
+                                            ) : (
+                                                <p>Drag & Drop the JD here or click to browse</p>
+                                            )}
+                                        </div>
+                                    )}
+                                    {jdError && <div className="error-message">{jdError}</div>}
+                                </div>
+                                <div className="form-actions">
+                                    <button type="submit" className="btn-primary" disabled={loading}>
+                                        {loading ? 'Evaluating...' : 'Evaluate'}
+                                    </button>
+                                </div>
+                            </form>
+                            {/* Evaluation Result */}
+                            {evalResult && (
+                                <div className="eval-result">
+                                    <h3>Evaluation Result</h3>
+                                    <div><strong>Match Score:</strong> {evalResult.match_score}</div>
+                                    <div><strong>Summary:</strong> {evalResult.summary}</div>
+                                    <div><strong>Missing Keywords:</strong> {Array.isArray(evalResult.missing_keywords) ? evalResult.missing_keywords.join(', ') : ''}</div>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {/* Resume Improver Tab */}
+                    {activeTab === 'improve' && (
+                        <>
+                            <form className="eval-form" onSubmit={handleImproveSubmit}>
+                                <div className="field resume-field">
+                                    <label className="field-label">Upload Resume (PDF)</label>
+                                    <div
+                                        className={`file-picker ${isResumeDragging ? 'dragging' : ''}`}
+                                        onDrop={(e) => handleDrop(e, setImproveResumeFile, setResumeError, setIsResumeDragging)}
+                                        onDragOver={handleDragOver}
+                                        onDragEnter={(e) => handleDragEnter(e, setIsResumeDragging)}
+                                        onDragLeave={(e) => handleDragLeave(e, setIsResumeDragging)}
+                                    >
+                                        <input
+                                            type="file"
+                                            accept=".pdf"
+                                            onChange={(e) => handleFileChange(e, setImproveResumeFile, setResumeError, setIsResumeDragging)}
+                                        />
+                                        {improveResumeFile ? (
+                                            <div className="file-name">
+                                                <i className="fas fa-file-pdf"></i> {improveResumeFile.name}
+                                            </div>
+                                        ) : (
+                                            <p>Drag & Drop your resume here or click to browse</p>
+                                        )}
+                                    </div>
+                                    {resumeError && <div className="error-message">{resumeError}</div>}
+                                </div>
+                                <div className="form-actions">
+                                    <button type="submit" className="btn-primary" disabled={improveLoading}>
+                                        {improveLoading ? 'Improving...' : 'Get Suggestions'}
+                                    </button>
+                                </div>
+                            </form>
+                            {/* Improvement Result */}
+                            {improveResult && (
+                                <div className="eval-result">
+                                    <h3>Resume Suggestions</h3>
+                                    <ReactMarkdown>{
+                                        Array.isArray(improveResult.suggestions)
+                                            ? improveResult.suggestions.map(s => `- ${s}`).join('\n')
+                                            : improveResult.suggestions
+                                    }</ReactMarkdown>
+                                </div>
+                            )}
+                        </>
+                    )}
+                    {/* Toast */}
+                    {toastVisible && (
+                        <div className="toast" role="status" aria-live="polite">
+                            <div className="toast-text">{toastText}</div>
+                            <button className="toast-close" onClick={closeToast} aria-label="Close">✕</button>
+                        </div>
+                    )}
+                </div>{/* end eval-card */}
+            </div>{/* end eval-layout */}
         </div>
     );
 };

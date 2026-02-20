@@ -150,7 +150,7 @@ const ResumeBuilder = () => {
 
       const data = await response.json();
       setGeneratedResume(data.resume);
-      
+
     } catch (err) {
       setError(err.message || 'An error occurred while generating the resume');
     } finally {
@@ -187,15 +187,15 @@ const ResumeBuilder = () => {
       tempContainer.style.lineHeight = '1.4';
       tempContainer.style.color = '#000';
       tempContainer.style.boxSizing = 'border-box';
-      
+
       // Format the resume content as HTML
       tempContainer.innerHTML = formatResumeForPDF(generatedResume);
-      
+
       document.body.appendChild(tempContainer);
-      
+
       // Wait a bit for rendering
       await new Promise(resolve => setTimeout(resolve, 300));
-      
+
       // Generate canvas from the container
       const canvas = await html2canvas(tempContainer, {
         scale: 2.5, // Higher scale for better quality
@@ -205,26 +205,26 @@ const ResumeBuilder = () => {
         windowWidth: 794,
         width: 794
       });
-      
+
       // Remove temporary container
       document.body.removeChild(tempContainer);
-      
+
       // Calculate PDF dimensions
       const imgWidth = 210; // A4 width in mm
       const pageHeight = 297; // A4 height in mm
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
+
       // Create PDF
       const pdf = new jsPDF('p', 'mm', 'a4');
       const imgData = canvas.toDataURL('image/png', 1.0);
-      
+
       let heightLeft = imgHeight;
       let position = 0;
-      
+
       // Add first page
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
-      
+
       // Add additional pages if needed
       while (heightLeft > 0) {
         position = heightLeft - imgHeight;
@@ -232,10 +232,10 @@ const ResumeBuilder = () => {
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
       }
-      
+
       // Download the PDF
       pdf.save('ats-optimized-resume.pdf');
-      
+
     } catch (err) {
       console.error('PDF generation error:', err);
       setError('Failed to generate PDF. Please try downloading as text instead.');
@@ -259,7 +259,7 @@ const ResumeBuilder = () => {
 
       const trimmed = line.trim();
       const nextLine = index < lines.length - 1 ? lines[index + 1].trim() : '';
-      
+
       // Skip empty lines but add spacing
       if (!trimmed) {
         if (inList) {
@@ -283,10 +283,10 @@ const ResumeBuilder = () => {
       }
 
       // Detect contact info (has @, |, phone, linkedin, github, portfolio keywords)
-      if (trimmed.includes('@') || 
-          trimmed.includes('|') || 
-          /\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(trimmed) ||
-          /linkedin|github|portfolio/i.test(trimmed)) {
+      if (trimmed.includes('@') ||
+        trimmed.includes('|') ||
+        /\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/.test(trimmed) ||
+        /linkedin|github|portfolio/i.test(trimmed)) {
         html += `<div style="text-align: center; margin-bottom: 4px;">
                    <p style="font-size: 9.5pt; color: #444; margin: 0; padding: 0;">${trimmed}</p>
                  </div>`;
@@ -294,11 +294,11 @@ const ResumeBuilder = () => {
       }
 
       // Detect section headers (ALL CAPS, reasonable length, no numbers)
-      if (trimmed === trimmed.toUpperCase() && 
-          trimmed.length > 3 && 
-          trimmed.length < 50 && 
-          !/^\d/.test(trimmed) &&
-          !trimmed.includes('|')) {
+      if (trimmed === trimmed.toUpperCase() &&
+        trimmed.length > 3 &&
+        trimmed.length < 50 &&
+        !/^\d/.test(trimmed) &&
+        !trimmed.includes('|')) {
         if (inList) {
           html += '</ul></div>';
           inList = false;
@@ -310,12 +310,12 @@ const ResumeBuilder = () => {
       }
 
       // Detect job title (followed by company/date line)
-      if (nextLine && 
-          (nextLine.match(/\d{4}/) || nextLine.match(/[A-Z][a-z]+\s+\d{4}/) || nextLine.toLowerCase().includes('present')) &&
-          !trimmed.match(/\d{4}/) &&
-          !trimmed.startsWith('-') &&
-          !trimmed.startsWith('•') &&
-          !trimmed.startsWith('*')) {
+      if (nextLine &&
+        (nextLine.match(/\d{4}/) || nextLine.match(/[A-Z][a-z]+\s+\d{4}/) || nextLine.toLowerCase().includes('present')) &&
+        !trimmed.match(/\d{4}/) &&
+        !trimmed.startsWith('-') &&
+        !trimmed.startsWith('•') &&
+        !trimmed.startsWith('*')) {
         if (inList) {
           html += '</ul></div>';
           inList = false;
@@ -326,9 +326,9 @@ const ResumeBuilder = () => {
       }
 
       // Detect company name with dates (has year, Present, etc.)
-      if (trimmed.match(/\d{4}/) || 
-          trimmed.toLowerCase().includes('present') || 
-          trimmed.toLowerCase().includes('current')) {
+      if (trimmed.match(/\d{4}/) ||
+        trimmed.toLowerCase().includes('present') ||
+        trimmed.toLowerCase().includes('current')) {
         // Check if this looks like a company line (has separator like | or - or comma, and dates)
         if (trimmed.includes('|') || trimmed.includes(' - ') || trimmed.match(/[A-Za-z]+.*\d{4}/)) {
           html += `<p style="font-size: 10pt; color: #555; font-style: italic; margin: 2px 0 6px 0; padding: 0;">${trimmed}</p>
@@ -338,12 +338,12 @@ const ResumeBuilder = () => {
       }
 
       // Detect bullet points
-      if (trimmed.startsWith('•') || 
-          trimmed.startsWith('-') || 
-          trimmed.startsWith('*') || 
-          trimmed.startsWith('–') ||
-          trimmed.startsWith('—') ||
-          /^[\d]+\./.test(trimmed)) {
+      if (trimmed.startsWith('•') ||
+        trimmed.startsWith('-') ||
+        trimmed.startsWith('*') ||
+        trimmed.startsWith('–') ||
+        trimmed.startsWith('—') ||
+        /^[\d]+\./.test(trimmed)) {
         if (!inList) {
           html += '<div style="margin-top: 4px;"><ul style="margin: 0; padding-left: 18px; list-style-type: disc;">';
           inList = true;
@@ -354,10 +354,10 @@ const ResumeBuilder = () => {
       }
 
       // Skills list (comma-separated or semi-colon separated)
-      if ((trimmed.includes(',') || trimmed.includes(';')) && 
-          trimmed.split(/[,;]/).length > 2 &&
-          !trimmed.match(/\d{4}/) &&
-          trimmed.length < 200) {
+      if ((trimmed.includes(',') || trimmed.includes(';')) &&
+        trimmed.split(/[,;]/).length > 2 &&
+        !trimmed.match(/\d{4}/) &&
+        trimmed.length < 200) {
         if (inList) {
           html += '</ul></div>';
           inList = false;
@@ -389,15 +389,6 @@ const ResumeBuilder = () => {
   return (
     <div className="resume-builder-page">
       <div className="resume-builder-container">
-        {/* Hero Section */}
-        <div className="builder-hero">
-          <div className="hero-icon">
-            <FileText className="icon" />
-          </div>
-          <h1>AI-Powered Resume Builder</h1>
-          <p className="subtitle">Create ATS-optimized resumes tailored to job descriptions using Gemini AI</p>
-        </div>
-
         {/* Main Content */}
         <div className="builder-content">
           {/* Input Section */}
@@ -521,8 +512,8 @@ Requirements:
                 </h2>
                 {generatedResume && (
                   <div className="download-buttons">
-                    <button 
-                      onClick={downloadAsPDF} 
+                    <button
+                      onClick={downloadAsPDF}
                       className="download-btn pdf"
                       disabled={pdfLoading}
                     >
@@ -584,8 +575,8 @@ Requirements:
             <ul>
               <li><strong>ATS-Optimized:</strong> Formatted to pass applicant tracking systems</li>
               <li><strong>Keyword Matching:</strong> Incorporates relevant keywords from job descriptions</li>
-              <li><strong>Professional Templates:</strong> Industry-standard layouts</li>
-              <li><strong>AI-Powered:</strong> Intelligent content optimization using Gemini LLM</li>
+              <li><strong>Professional Templates:</strong> Industry-standard layouts for any role</li>
+              <li><strong>Job-Tailored:</strong> Content aligned to the specific role you're targeting</li>
             </ul>
           </div>
         </div>

@@ -421,7 +421,7 @@ const Chat = () => {
             <aside className="chat-sidebar">
                 <div className="chat-sidebar-header">
                     <h3>Conversations</h3>
-                    <button className="btn btn-outline btn-small chat-new-btn" onClick={createNewConversation}>
+                    <button className="btn btn-secondary btn-small chat-new-btn" onClick={createNewConversation}>
                         New
                     </button>
                 </div>
@@ -495,7 +495,7 @@ const Chat = () => {
                     ))}
                 </ul>
                 <div className="chat-sidebar-footer">
-                    <button className="btn btn-outline btn-small" onClick={clearAllConversations}>
+                    <button className="btn btn-secondary btn-small" onClick={clearAllConversations}>
                         Clear All
                     </button>
                 </div>

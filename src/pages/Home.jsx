@@ -6,87 +6,84 @@ const Home = () => {
     const features = [
         {
             id: 1,
-            name: 'AI Interview Coach',
-            icon: '🤖',
-            description: 'Practice with our intelligent AI that adapts to your skill level and provides real-time feedback',
+            name: 'Interview Practice',
+            icon: '🎤',
+            description: 'Practice with a conversational coach that listens, adapts, and gives you honest, detailed feedback after every answer.',
             category: 'Core Feature',
             route: '/chat',
-            color: '#667eea',
-            gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+            color: '#0F2D5C',
+            gradient: 'linear-gradient(135deg, #0F2D5C 0%, #1A3F7A 100%)'
         },
         {
             id: 2,
-            name: 'Smart Resume Builder',
-            icon: '📄',
-            description: 'Create ATS-optimized resumes with AI suggestions and professional templates',
+            name: 'Resume Coach',
+            icon: '📋',
+            description: 'Build ATS-friendly resumes with smart suggestions, get instant scores, and tailor every application to a job description.',
             category: 'Resume Tools',
             route: '/resume-builder',
-            color: '#f093fb',
-            gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+            color: '#0F2D5C',
+            gradient: 'linear-gradient(135deg, #1A3F7A 0%, #0F2D5C 100%)'
         },
         {
             id: 3,
-            name: 'Company Question Bank',
-            icon: '🏢',
-            description: 'Access real interview questions from top companies with detailed answer guides',
+            name: 'Question Bank',
+            icon: '📚',
+            description: 'Study real questions asked at top companies, organised by role, domain, and difficulty — with model answers.',
             category: 'Interview Prep',
-            route: '/',
-            color: '#4facfe',
-            gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+            route: '/question-bank',
+            color: '#0F2D5C',
+            gradient: 'linear-gradient(135deg, #0F2D5C 0%, #1A3F7A 100%)'
         },
         {
             id: 4,
-            name: 'Progress Analytics',
+            name: 'Progress Dashboard',
             icon: '📊',
-            description: 'Track your improvement with detailed insights and personalized recommendations',
+            description: 'See how far you have come. Track quiz scores, interview ratings, and activity history all in one place.',
             category: 'Analytics',
             route: '/dashboard',
-            color: '#43e97b',
-            gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
+            color: '#0F2D5C',
+            gradient: 'linear-gradient(135deg, #1A3F7A 0%, #0F2D5C 100%)'
         },
         {
             id: 5,
             name: 'Mock Interviews',
-            icon: '🎭',
-            description: 'Simulate real interview scenarios with voice-based AI interactions',
+            icon: '🎙️',
+            description: 'Run full voice-based interview simulations and receive scores on communication, confidence, and technical depth.',
             category: 'Practice',
             route: '/mock-interview',
-            color: '#fa709a',
-            gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
+            color: '#0F2D5C',
+            gradient: 'linear-gradient(135deg, #0F2D5C 0%, #1A3F7A 100%)'
         },
         {
             id: 6,
-            name: 'Job Matching',
-            icon: '🎯',
-            description: 'Find opportunities that match your skills and experience perfectly',
+            name: 'Job Finder',
+            icon: '🔍',
+            description: 'Discover roles that match your skills — filter by company, location, and salary, then apply with a tailored resume.',
             category: 'Career',
             route: '/job-finder',
-            color: '#ffecd2',
-            gradient: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)'
+            color: '#0F2D5C',
+            gradient: 'linear-gradient(135deg, #1A3F7A 0%, #0F2D5C 100%)'
         }
     ];
 
     const testimonials = [
         {
             name: 'Sarah Chen',
-            role: 'Software Engineer',
-            company: 'Google',
-            text: 'The AI interview prep helped me land my dream job. The feedback was incredibly detailed!',
-            avatar: '👩‍💻'
+            role: 'Software Engineer at Google',
+            text: 'The interview practice gave me confidence I never had before. The feedback was specific, actionable, and genuinely helped me improve.',
+            initials: 'SC'
         },
         {
             name: 'Marcus Rodriguez',
-            role: 'Product Manager',
-            company: 'Microsoft',
-            text: 'Finally, a platform that actually prepares you for real interviews. Game changer!',
-            avatar: '👨‍💼'
+            role: 'Product Manager at Microsoft',
+            text: 'Finally a platform that feels like a real career resource, not a gimmick. I landed two offers after a month of using PrepWise.',
+            initials: 'MR'
         },
         {
             name: 'Priya Patel',
-            role: 'Data Scientist',
-            company: 'Amazon',
-            text: 'The resume builder is magic. My applications went from 0 to 10 responses overnight.',
-            avatar: '👩‍🔬'
+            role: 'Data Scientist at Amazon',
+            text: 'The resume coach completely changed my application hit rate. I went from zero callbacks to five interviews in two weeks.',
+            initials: 'PP'
         }
     ];
 
@@ -95,105 +92,69 @@ const Home = () => {
             {/* Hero Section */}
             <section className="hero">
                 <div className="hero-background">
-                    <div className="hero-shapes">
-                        <div className="shape shape-1"></div>
-                        <div className="shape shape-2"></div>
-                        <div className="shape shape-3"></div>
-                    </div>
+                    <div className="hero-shapes"></div>
                 </div>
 
                 <div className="hero-content">
-                    <div className="hero-left">
+                    <div className="hero-center">
                         <div className="hero-badge">
-                            <span>🚀</span>
-                            <span>AI-Powered Interview Prep</span>
+                            <span>🎓</span>
+                            <span>Your Career Toolkit</span>
                         </div>
 
                         <h1 className="hero-title">
-                            Master Your Next
-                            <span className="gradient-text"> Interview</span>
+                            Land the Job<br />
+                            You<span className="gradient-text"> Deserve</span>
                         </h1>
 
                         <p className="hero-description">
-                            Stop guessing what interviewers want. Our AI analyzes thousands of real interviews
-                            to give you the exact preparation you need to succeed.
+                            PrepWise gives students and job seekers the tools to prepare smarter —
+                            practice interviews, build better resumes, and apply with confidence.
                         </p>
 
                         <div className="hero-actions">
-                            <button className="btn-primary">
-                                <span>Start Free Trial</span>
+                            <Link to="/signup" className="btn-primary">
+                                <span>Get Started Free</span>
                                 <span className="btn-arrow">→</span>
-                            </button>
-                            <button className="btn-secondary">
-                                <span>Watch Demo</span>
-                                <span className="play-icon">▶</span>
-                            </button>
-                            <Link to="/chat" className="btn-primary">
-                                <span>Go to Chat</span>
+                            </Link>
+                            <Link to="/chat" className="btn-secondary">
+                                <span>Try Interview Practice</span>
                             </Link>
                         </div>
 
                         <div className="hero-stats">
                             <div className="stat-item">
                                 <span className="stat-number">50K+</span>
-                                <span className="stat-label">Users</span>
+                                <span className="stat-label">Students Helped</span>
                             </div>
                             <div className="stat-item">
                                 <span className="stat-number">95%</span>
-                                <span className="stat-label">Success Rate</span>
+                                <span className="stat-label">Offer Rate</span>
                             </div>
                             <div className="stat-item">
                                 <span className="stat-number">200+</span>
                                 <span className="stat-label">Companies</span>
                             </div>
                         </div>
-                    </div>
 
-                    <div className="hero-right">
-                        <div className="hero-visual">
-                            <div className="floating-element element-1">
-                                <div className="element-icon">🎯</div>
-                                <div className="element-text">AI Coach</div>
-                            </div>
-                            <div className="floating-element element-2">
-                                <div className="element-icon">📝</div>
-                                <div className="element-text">Resume</div>
-                            </div>
-                            <div className="floating-element element-3">
-                                <div className="element-icon">🏆</div>
-                                <div className="element-text">Success</div>
-                            </div>
-                            <div className="main-visual">
-                                <div className="visual-circle">
-                                    <div className="inner-circle">
-                                        <span className="ai-icon">🤖</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                    </div>{/* end hero-center */}
+                </div>{/* end hero-content */}
             </section>
 
             {/* Features Section */}
             <section className="features">
                 <div className="container">
                     <div className="section-intro">
-                        <h2>Interview Strategies</h2>
-                        <p>Our AI platform combines cutting-edge technology with proven interview strategies</p>
+                        <div className="section-tag">What You Get</div>
+                        <h2>Everything You Need to Land the Job</h2>
+                        <p>Six powerful tools built for students and job seekers — all in one place, zero fluff.</p>
                     </div>
 
                     <div className="features-grid">
                         {features.map(feature => {
-                            let link = null;
-                            if (feature.name === 'Company Question Bank') link = '/question-bank';
-                            else if (feature.name === 'Job Matching') link = '/job-finder';
-                            else if (feature.name === 'Mock Interviews') link = '/mock-interview';
-                            else if (feature.name === 'Smart Resume Builder') link = '/resume-builder';
-                            else if (feature.name === 'Progress Analytics') link = '/dashboard';
-
+                            let link = feature.route;
                             return (
-                                <Link key={feature.id} to={link || feature.route || '#'} className="feature-link" style={{ textDecoration: 'none' }}>
+                                <Link key={feature.id} to={link || '#'} className="feature-link" style={{ textDecoration: 'none' }}>
                                     <div className="feature-card" style={{ '--card-color': feature.color, '--card-gradient': feature.gradient }}>
                                         <div className="feature-header">
                                             <div className="feature-icon-wrapper">
@@ -221,30 +182,30 @@ const Home = () => {
                 <div className="container">
                     <div className="highlight-content">
                         <div className="highlight-left">
-                            <div className="highlight-badge">🔥 Exclusive Feature</div>
-                            <h2>Company Question Bank</h2>
+                            <div className="highlight-badge">🔥 Top Feature</div>
+                            <h2>Real Questions from Real Interviews</h2>
                             <p>
-                                Access real interview questions from top tech companies like Google, Microsoft,
-                                Amazon, and more. Our AI analyzes your answers and provides "if I were you"
-                                improvements that actually work.
+                                Our Question Bank includes curated questions from Google, Microsoft, Amazon,
+                                and hundreds more. Study smart, not just hard — with model answers and tips
+                                for every role.
                             </p>
 
                             <div className="highlight-benefits">
                                 <div className="benefit">
                                     <span className="check">✓</span>
-                                    <span>Real questions from actual interviews</span>
+                                    <span>Questions from actual interview rounds</span>
                                 </div>
                                 <div className="benefit">
                                     <span className="check">✓</span>
-                                    <span>AI-powered answer critiques</span>
+                                    <span>Detailed answer coaching and critique</span>
                                 </div>
                                 <div className="benefit">
                                     <span className="check">✓</span>
-                                    <span>Company-specific strategies</span>
+                                    <span>Company-specific preparation strategies</span>
                                 </div>
                             </div>
 
-                            <button className="btn-primary">Explore Question Bank</button>
+                            <Link to="/question-bank" className="btn-primary">Explore Question Bank</Link>
                         </div>
 
                         <div className="highlight-right">
@@ -269,8 +230,9 @@ const Home = () => {
             <section className="testimonials">
                 <div className="container">
                     <div className="section-intro">
-                        <h2>What Our Users Say</h2>
-                        <p>Join thousands of professionals who've transformed their careers</p>
+                        <div className="section-tag">Student Stories</div>
+                        <h2>Real Outcomes, Real People</h2>
+                        <p>Thousands of students have used PrepWise to go from uncertain to hired.</p>
                     </div>
 
                     <div className="testimonials-grid">
@@ -280,10 +242,10 @@ const Home = () => {
                                     <p>"{testimonial.text}"</p>
                                 </div>
                                 <div className="testimonial-author">
-                                    <div className="author-avatar">{testimonial.avatar}</div>
+                                    <div className="author-avatar">{testimonial.initials}</div>
                                     <div className="author-info">
                                         <div className="author-name">{testimonial.name}</div>
-                                        <div className="author-role">{testimonial.role} at {testimonial.company}</div>
+                                        <div className="author-role">{testimonial.role}</div>
                                     </div>
                                 </div>
                             </div>
@@ -296,15 +258,14 @@ const Home = () => {
             <section className="cta">
                 <div className="container">
                     <div className="cta-content">
-                        <h2>Ready to Ace Your Interview?</h2>
-                        <p>Start your free trial today and see the difference AI-powered preparation makes</p>
+                        <h2>Your Next Offer Starts Here</h2>
+                        <p>Join thousands of students who prepared with PrepWise and walked into interviews with confidence.</p>
                         <div className="cta-actions">
-                            <button className="btn-primary btn-large">Get Started Free</button>
-                            <button className="btn-outline btn-large">Schedule Demo</button>
+                            <Link to="/signup" className="btn-primary btn-large">Start for Free</Link>
+                            <Link to="/question-bank" className="btn-outline btn-large">Browse Questions</Link>
                         </div>
                         <div className="cta-note">
-                            <span>✓</span>
-                            <span>No credit card required • 14-day free trial</span>
+                            <span>No credit card required — always free to start</span>
                         </div>
                     </div>
                 </div>

@@ -1,62 +1,722 @@
-.mock-interview {
+/* ===================================================
+   PrepWise Mock Interview — Campus to Career
+   =================================================== */
+.mock-interview-page {
+    min-height: calc(100vh - 72px);
+    background: var(--color-cream, #FFFBF5);
+    font-family: 'DM Sans', var(--font-body, sans-serif);
+    padding: 1.5rem 1.5rem 4rem;
+}
+
+
+
+/* Visually hidden */
+.sr-only {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
+/* ── Hero ── */
+.mi-hero {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+
+.mi-hero-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    line-height: 1;
+    display: block;
+}
+
+.mi-hero-title {
+    font-family: 'Sora', var(--font-display, sans-serif);
+    font-size: clamp(2.2rem, 4vw, 3rem);
+    font-weight: 800;
+    color: var(--color-navy, #0F2D5C);
+    margin: 0 0 0.75rem;
+    letter-spacing: -0.03em;
+}
+
+.mi-hero-sub {
+    font-size: 1.05rem;
+    color: var(--color-text-muted, #5A6A7A);
+    max-width: 520px;
+    margin: 0 auto 1.5rem;
+    line-height: 1.6;
+}
+
+/* Status pill */
+.mi-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 50px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    border: 1.5px solid;
+}
+
+.mi-status-pill.ready {
+    background: rgba(15, 45, 92, 0.06);
+    color: var(--color-navy, #0F2D5C);
+    border-color: rgba(15, 45, 92, 0.12);
+}
+
+.mi-status-pill.live {
+    background: rgba(34, 197, 94, 0.1);
+    color: #166534;
+    border-color: rgba(34, 197, 94, 0.25);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #94a3b8;
+    flex-shrink: 0;
+}
+
+.mi-status-pill.live .status-dot {
+    background: #22c55e;
+}
+
+.status-dot.pulse {
+    animation: blink 1.2s infinite;
+}
+
+@keyframes blink {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.3;
+    }
+}
+
+/* ── Body Layout ── */
+.mi-body {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 1.75rem;
+    max-width: 100%;
+    margin: 0;
+    align-items: start;
+    min-height: calc(100vh - 130px);
+}
+
+
+/* ── Instructions Panel ── */
+.mi-instructions {
+    background: white;
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: 0 3px 12px rgba(15, 45, 92, 0.07);
+    border: 1.5px solid rgba(15, 45, 92, 0.06);
+    border-top: 3px solid var(--color-navy, #0F2D5C);
+    position: sticky;
+    top: 88px;
+}
+
+.mi-panel-title {
+    font-family: 'Sora', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--color-navy, #0F2D5C);
+    margin: 0 0 1.5rem;
+}
+
+/* Steps */
+.mi-steps {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    padding: 20px;
-    font-family: Arial, sans-serif;
+    gap: 1.25rem;
+    margin-bottom: 2rem;
 }
 
-.mock-interview h1 {
-    font-size: 24px;
-    margin-bottom: 20px;
-}
-
-.mock-interview textarea {
-    width: 80%;
-    height: 150px;
-    margin-bottom: 20px;
-    padding: 10px;
-    font-size: 16px;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-}
-
-.mock-interview .buttons {
+.mi-step {
     display: flex;
-    gap: 10px;
+    gap: 1rem;
+    align-items: flex-start;
 }
 
-.mock-interview button {
-    padding: 10px 20px;
-    font-size: 16px;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-}
-
-.mock-interview button:disabled {
-    background-color: #ccc;
-    cursor: not-allowed;
-}
-
-.mock-interview button:not(:disabled) {
-    background-color: #007bff;
+.step-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--color-navy, #0F2D5C);
     color: white;
+    font-weight: 800;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+    font-family: 'Sora', sans-serif;
 }
 
-.mock-interview button:not(:disabled):hover {
-    background-color: #0056b3;
+.mi-step strong {
+    display: block;
+    font-weight: 700;
+    color: var(--color-navy, #0F2D5C);
+    font-size: 0.95rem;
+    margin-bottom: 0.2rem;
 }
 
-/* Compact loading spinner used in MockInterview.jsx buttons */
-/* spinner removed - using normal button text instead */
+.mi-step p {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--color-text-muted, #5A6A7A);
+    line-height: 1.5;
+}
 
-/* Ensure buttons don't shift size when content changes (keep padding consistent) */
-.mock-interview .enhanced-btn {
+/* Tips */
+.mi-tips {
+    background: var(--color-cream, #FFFBF5);
+    border-radius: 10px;
+    padding: 1.1rem;
+    border: 1.5px solid rgba(245, 158, 11, 0.2);
+    border-left: 3px solid var(--color-amber, #F59E0B);
+}
+
+.mi-tips-title {
+    font-family: 'Sora', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--color-navy, #0F2D5C);
+    margin: 0 0 0.75rem;
+}
+
+.mi-tips ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.mi-tips li {
+    font-size: 0.86rem;
+    color: var(--color-text-muted, #5A6A7A);
+    padding-left: 1rem;
+    position: relative;
+    line-height: 1.45;
+}
+
+.mi-tips li::before {
+    content: '•';
+    position: absolute;
+    left: 0;
+    color: var(--color-amber, #F59E0B);
+    font-weight: 800;
+}
+
+/* ── Interaction Panel ── */
+.mi-interaction {
+    background: white;
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: 0 3px 12px rgba(15, 45, 92, 0.07);
+    border: 1.5px solid rgba(15, 45, 92, 0.06);
+}
+
+/* Live banner */
+.mi-live-banner {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    background: rgba(34, 197, 94, 0.08);
+    border: 1.5px solid rgba(34, 197, 94, 0.2);
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+    animation: fadeIn 0.3s ease;
+}
+
+.live-mic {
+    font-size: 2rem;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.1);
+        opacity: 0.8;
+    }
+}
+
+.mi-live-banner p {
+    margin: 0;
+    color: #166534;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+/* Form */
+.mi-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.mi-label {
+    display: block;
+    font-weight: 700;
+    color: var(--color-navy, #0F2D5C);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.mi-textarea {
+    width: 100%;
+    padding: 1rem;
+    border: 1.5px solid var(--color-border, #E4E9EF);
+    border-radius: 12px;
+    font-size: 0.97rem;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--color-text, #1C2B3A);
+    background: var(--color-cream, #FFFBF5);
+    resize: vertical;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    min-height: 200px;
+    box-sizing: border-box;
+}
+
+.mi-textarea:focus {
+    outline: none;
+    border-color: var(--color-navy, #0F2D5C);
+    background: white;
+    box-shadow: 0 0 0 3px rgba(15, 45, 92, 0.08);
+}
+
+.mi-textarea:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: #f1f5f9;
+}
+
+.mi-textarea::placeholder {
+    color: #aab4be;
+}
+
+/* Upload group */
+.mi-upload-group {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.mi-upload-btn {
     display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1.25rem;
+    background: var(--color-navy, #0F2D5C);
+    color: white;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.25s ease;
+    border: 2px solid var(--color-navy, #0F2D5C);
+}
+
+.mi-upload-btn:hover {
+    background: #1A3F7A;
+    transform: translateY(-1px);
+}
+
+.mi-upload-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.mi-filename {
+    font-size: 0.9rem;
+    color: var(--color-text-muted, #5A6A7A);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* Buttons */
+.mi-btn-group {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.mi-btn {
+    flex: 1;
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 700;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.25s ease;
+    min-height: 52px;
+    display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    white-space: nowrap;
-    /* prevent wrapping which causes height changes */
+}
+
+.mi-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.mi-btn.primary {
+    background: var(--color-navy, #0F2D5C);
+    color: white;
+    border-color: var(--color-navy, #0F2D5C);
+}
+
+.mi-btn.primary:hover:not(:disabled) {
+    background: #1A3F7A;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(15, 45, 92, 0.22);
+}
+
+.mi-btn.danger {
+    background: #dc2626;
+    color: white;
+    border-color: #dc2626;
+}
+
+.mi-btn.danger:hover {
+    background: #b91c1c;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(220, 38, 38, 0.25);
+}
+
+.mi-btn.secondary {
+    background: var(--color-amber, #F59E0B);
+    color: var(--color-navy, #0F2D5C);
+    border-color: var(--color-amber, #F59E0B);
+}
+
+.mi-btn.secondary:hover:not(:disabled) {
+    background: #D97706;
+    border-color: #D97706;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.25);
+}
+
+.mi-btn.outline {
+    background: transparent;
+    color: var(--color-navy, #0F2D5C);
+    border-color: var(--color-navy, #0F2D5C);
+}
+
+.mi-btn.outline:hover {
+    background: var(--color-navy, #0F2D5C);
+    color: white;
+}
+
+/* Spinner */
+.mi-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2.5px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.75s linear infinite;
+}
+
+.mi-spinner.large {
+    width: 44px;
+    height: 44px;
+    border-width: 4px;
+    margin: 0 auto;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Feedback Modal ── */
+.mi-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 45, 92, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 2rem;
+    overflow-y: auto;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.mi-modal {
+    background: white;
+    border-radius: 20px;
+    max-width: 800px;
+    width: 100%;
+    max-height: 88vh;
+    overflow-y: auto;
+    padding: 2.5rem;
+    position: relative;
+    box-shadow: 0 24px 64px rgba(15, 45, 92, 0.25);
+}
+
+.mi-modal::-webkit-scrollbar {
+    width: 6px;
+}
+
+.mi-modal::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 10px;
+}
+
+.mi-modal::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+}
+
+.mi-modal-close {
+    position: absolute;
+    top: 1.25rem;
+    right: 1.25rem;
+    background: var(--color-cream, #FFFBF5);
+    border: 1.5px solid var(--color-border, #E4E9EF);
+    border-radius: 8px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1rem;
+    color: var(--color-text-muted, #5A6A7A);
+    transition: all 0.2s ease;
+}
+
+.mi-modal-close:hover {
+    background: #fef2f2;
+    border-color: #fca5a5;
+    color: #dc2626;
+}
+
+.mi-modal-title {
+    font-family: 'Sora', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--color-navy, #0F2D5C);
+    margin: 0 0 2rem;
+}
+
+.mi-modal-loading {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--color-text-muted, #5A6A7A);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.mi-modal-loading .mi-spinner {
+    border-top-color: var(--color-navy, #0F2D5C);
+    border-color: rgba(15, 45, 92, 0.15);
+    border-top-color: var(--color-navy, #0F2D5C);
+}
+
+.mi-modal-empty {
+    text-align: center;
+    color: var(--color-text-muted, #5A6A7A);
+    padding: 2rem;
+}
+
+/* Score grid */
+.mi-score-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.score-card {
+    background: var(--color-navy, #0F2D5C);
+    border-radius: 14px;
+    padding: 1.25rem;
+    text-align: center;
+    color: white;
+}
+
+.score-icon {
+    font-size: 1.75rem;
+    margin-bottom: 0.5rem;
+    line-height: 1;
+}
+
+.score-value {
+    font-family: 'Sora', sans-serif;
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 0.25rem;
+}
+
+.score-value span {
+    font-size: 1rem;
+    opacity: 0.7;
+}
+
+.score-label {
+    font-size: 0.8rem;
+    opacity: 0.8;
+    font-weight: 600;
+}
+
+/* Feedback blocks */
+.mi-feedback-block {
+    padding: 1.25rem;
+    border-radius: 12px;
+    margin-bottom: 1.25rem;
+    background: var(--color-cream, #FFFBF5);
+    border: 1.5px solid rgba(15, 45, 92, 0.06);
+}
+
+.mi-feedback-block h3 {
+    font-family: 'Sora', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-navy, #0F2D5C);
+    margin: 0 0 0.75rem;
+}
+
+.mi-feedback-block p {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--color-text, #1C2B3A);
+    line-height: 1.65;
+}
+
+.mi-feedback-block ul {
+    padding-left: 1.25rem;
+    margin: 0;
+}
+
+.mi-feedback-block li {
+    margin: 0.4rem 0;
+    font-size: 0.95rem;
+    line-height: 1.55;
+}
+
+.mi-feedback-block.strengths {
+    border-left: 4px solid #22c55e;
+}
+
+.mi-feedback-block.strengths li {
+    color: #166534;
+}
+
+.mi-feedback-block.weaknesses {
+    border-left: 4px solid #f59e0b;
+}
+
+.mi-feedback-block.weaknesses li {
+    color: #92400e;
+}
+
+.mi-feedback-block.actions {
+    border-left: 4px solid var(--color-navy, #0F2D5C);
+    background: rgba(15, 45, 92, 0.04);
+}
+
+.mi-feedback-block.actions li {
+    color: var(--color-navy, #0F2D5C);
+}
+
+.mi-modal-footer {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1.5px solid rgba(15, 45, 92, 0.06);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    .mi-body {
+        grid-template-columns: 1fr;
+    }
+
+    .mi-instructions {
+        position: static;
+        top: auto;
+    }
+
+    .mi-score-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 540px) {
+    .mock-interview-page {
+        padding: 2rem 1rem 3rem;
+    }
+
+    .mi-modal {
+        padding: 1.75rem 1.25rem;
+    }
+
+    .mi-btn-group {
+        flex-direction: column;
+    }
+
+    .mi-score-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+    }
+
+    .score-value {
+        font-size: 1.6rem;
+    }
+
+    .mi-modal-footer {
+        flex-direction: column;
+    }
 }
