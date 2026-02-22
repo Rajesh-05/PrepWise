@@ -64,17 +64,6 @@ const Pricing = () => {
             className={`pricing-card${selected === plan.name ? ' selected' : ''}`}
             key={plan.name}
             onClick={() => setSelected(plan.name)}
-            style={selected === plan.name ? {
-              cursor: 'pointer',
-              border: '3px solid #10b981',
-              boxShadow: '0 4px 24px rgba(16,185,129,0.18)',
-              background: 'linear-gradient(90deg, #e0f7fa 0%, #f3f4fa 100%)'
-            } : {
-              cursor: 'pointer',
-              border: '2px solid #e0e7ff',
-              boxShadow: '0 2px 16px rgba(99,102,241,0.08)',
-              background: '#fff'
-            }}
           >
             <div className="plan-header">
               <h3>{plan.name}</h3>
@@ -88,11 +77,6 @@ const Pricing = () => {
             </ul>
             <button
               className="plan-btn"
-              style={selected === plan.name ? {
-                background: 'linear-gradient(90deg, #10b981 0%, #6366f1 100%)',
-                color: '#fff',
-                fontWeight: 700
-              } : undefined}
               disabled={selected === plan.name}
             >
               {selected === plan.name ? '✔ Selected' : plan.button}
@@ -100,7 +84,7 @@ const Pricing = () => {
           </div>
         ))}
       </div>
-      <div style={{textAlign: 'center', marginTop: '2rem', color: '#10b981', fontWeight: 600, fontSize: '1.15rem'}}>
+      <div className="pricing-selection-msg">
         {selected === 'Free' && 'You have selected the Free plan. Enjoy limited access to PrepWise features.'}
         {selected === 'Starter' && 'You have selected the Starter plan. Unlock more resume tools and templates.'}
         {selected === 'Unlimited' && 'You have selected the Unlimited plan. Enjoy full access and priority support!'}

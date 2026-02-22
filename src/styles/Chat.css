@@ -3,7 +3,7 @@
 /* --- Layout --- */
 .chat-page {
     display: flex;
-    height: calc(100vh - 80px); /* match header min-height */
+    height: calc(100vh - 64px); /* match header min-height */
     background: #f0f2f5;
     position: relative;
     overflow: hidden;
