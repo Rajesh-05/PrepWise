@@ -24,6 +24,15 @@ import jwt
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 
+from typing import Dict, TypedDict
+from langgraph.graph import StateGraph, END, START
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, trim_messages
+from langchain_community.tools import DuckDuckGoSearchResults
+from langchain.agents import create_agent
+from langchain.tools import tool as langchain_tool
+
 app = Flask(__name__)
 CORS(app)
 
@@ -109,6 +118,11 @@ load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("GEMINI_API_KEY not found in environment variables")
+
+# Initialize Groq for multi-agent
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+if not GROQ_API_KEY:
+    print("Warning: GROQ_API_KEY not found. Multi-agent endpoints will not work.")
 
 # MongoDB + JWT config
 MONGODB_URI = os.getenv("MONGODB_URI")
@@ -825,6 +839,1044 @@ def reset_password():
         return jsonify({"error": "Failed to reset password"}), 500
 
     return jsonify({"message": "Password reset successful"})
+
+
+class MultiAgentState(TypedDict):
+    """State structure for the LangGraph workflow."""
+    query: str
+    category: str
+    response: str
+    messages: list  # Conversation history
+    current_agent: str  # Current active agent
+    should_reroute: bool  # Whether to reroute to new agent
+
+def trim_conversation_history(messages, max_messages=10):
+    """Trim conversation history to retain only the latest messages."""
+    return trim_messages(
+        messages,
+        max_tokens=max_messages,
+        strategy="last",
+        token_counter=len,
+        start_on="human",
+        include_system=True,
+        allow_partial=False,
+    )
+
+def save_agent_output(data, filename):
+    """Save data to a timestamped markdown file."""
+    folder_name = "Agent_output"
+    os.makedirs(folder_name, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    filename = f"{filename}_{timestamp}.md"
+    file_path = os.path.join(folder_name, filename)
+    
+    with open(file_path, "w", encoding="utf-8") as file:
+        file.write(data)
+    
+    return file_path
+
+def parse_agent_continuity_response(content, agent_name="Agent"):
+    """Shared robust JSON parser for agent continuity checks."""
+    import re
+    
+    # Remove markdown code blocks if present
+    content = re.sub(r'```json\s*', '', content)
+    content = re.sub(r'```\s*$', '', content)
+    content = content.strip()
+    
+    try:
+        # Strategy 1: JSON at the start
+        if content.startswith('{'):
+            json_end = content.find('}')
+            if json_end != -1:
+                json_part = content[:json_end + 1]
+                remaining_content = content[json_end + 1:].strip()
+                
+                try:
+                    check_result = json.loads(json_part)
+                    should_handle = check_result.get('should_handle', False)
+                    reason = check_result.get('reason', '')
+                    
+                    if should_handle:
+                        # Must have response content if should_handle is true
+                        if remaining_content:
+                            return {
+                                "should_handle": True,
+                                "response": remaining_content,
+                                "reason": reason
+                            }
+                        else:
+                            # No content provided, reroute
+                            return {
+                                "should_handle": False,
+                                "response": None,
+                                "reason": "No response content"
+                            }
+                    else:
+                        return {
+                            "should_handle": False,
+                            "response": None,
+                            "reason": reason
+                        }
+                except json.JSONDecodeError:
+                    pass  # Try next strategy
+        
+        # Strategy 2: Find JSON pattern anywhere in text
+        json_pattern = r'\{\s*"should_handle"\s*:\s*(true|false)\s*,\s*"reason"\s*:\s*"([^"]+)"\s*\}'
+        match = re.search(json_pattern, content, re.IGNORECASE)
+        
+        if match:
+            should_handle = match.group(1).lower() == 'true'
+            reason = match.group(2)
+            
+            # Extract response after JSON
+            json_end_pos = match.end()
+            remaining_content = content[json_end_pos:].strip()
+            
+            if should_handle:
+                if remaining_content:
+                    return {
+                        "should_handle": True,
+                        "response": remaining_content,
+                        "reason": reason
+                    }
+                else:
+                    return {
+                        "should_handle": False,
+                        "response": None,
+                        "reason": "No response after JSON"
+                    }
+            else:
+                return {
+                    "should_handle": False,
+                    "response": None,
+                    "reason": reason
+                }
+        
+        # Strategy 3: Look for explicit rejection signals
+        content_lower = content.lower()
+        if any(phrase in content_lower for phrase in [
+            '"should_handle": false',
+            "cannot handle",
+            "not my domain",
+            "not related to",
+            "outside my expertise"
+        ]):
+            return {
+                "should_handle": False,
+                "response": None,
+                "reason": "Explicit rejection detected"
+            }
+        
+        # Fallback: No valid JSON found - safer to reroute
+        print(f"WARNING [{agent_name}]: No valid JSON found. Content: {content[:150]}...")
+        return {
+            "should_handle": False,
+            "response": None,
+            "reason": "No valid continuity check format"
+        }
+        
+    except Exception as e:
+        print(f"ERROR [{agent_name}]: Parse error - {str(e)}")
+        return {
+            "should_handle": False,
+            "response": None,
+            "reason": f"Parse error: {str(e)}"
+        }
+
+class LearningResourceAgent:
+    """Agent for handling learning resources and Q&A sessions."""
+    
+    AGENT_NAME = "learning_resource"
+    
+    def __init__(self, system_message):
+        self.model = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            groq_api_key=GROQ_API_KEY,
+            temperature=0.5
+        )
+        self.system_message = system_message
+        
+        # Create search tool using @tool decorator
+        @langchain_tool
+        def search_web(query: str) -> str:
+            """Search the web for information."""
+            search = DuckDuckGoSearchResults(max_results=5)
+            results = search.invoke(query)
+            return str(results)
+        
+        self.tools = [search_web]
+    
+    def check_and_respond(self, user_input, conversation_history):
+        """Check if query should be handled by this agent and respond in single LLM call."""
+        # Build conversation with history
+        messages_list = [SystemMessage(content=self.system_message)]
+        
+        # Add history (trimmed to last 10 messages)
+        if conversation_history:
+            history_trimmed = conversation_history[-20:]  # Last 10 pairs (20 messages)
+            for msg in history_trimmed:
+                if msg.get('role') == 'user':
+                    messages_list.append(HumanMessage(content=msg['content']))
+                elif msg.get('role') == 'assistant':
+                    messages_list.append(AIMessage(content=msg['content']))
+        
+        # Improved continuity check prompt
+        continuity_prompt = f"""User Query: {user_input}
+
+---
+BEFORE RESPONDING: Analyze if this query is about learning Generative AI, tutorials, technical questions, or coding help.
+
+You SHOULD HANDLE queries like:
+- "Teach me about LangChain"
+- "How does RAG work?"
+- "Create a tutorial on..."
+- "Explain the concept of..."
+- Technical Q&A about AI/ML
+
+You should NOT HANDLE queries about:
+- Resume writing/building (route to Resume Builder)
+- Interview preparation/questions (route to Interview Coach)
+- Job searching (route to Job Search Agent)
+- General greetings only (route to General Agent)
+
+Respond with JSON ONLY followed by your answer:
+{{
+  "should_handle": true/false,
+  "reason": "1-2 word reason"
+}}
+
+If should_handle is true, write your detailed response AFTER the JSON.
+If should_handle is false, write ONLY the JSON, nothing else.
+"""
+        messages_list.append(HumanMessage(content=continuity_prompt))
+        
+        response = self.model.invoke(messages_list)
+        content = response.content.strip()
+        
+        # Use shared parsing function
+        return parse_agent_continuity_response(content, "LearningResourceAgent")
+    
+    def TutorialAgent(self, user_input):
+        """Create a comprehensive tutorial using web search and AI."""
+        # Create agent using the NEW API
+        agent = create_agent(
+            model=self.model,
+            tools=self.tools,
+            system_prompt=self.system_message
+        )
+        
+        response = agent.invoke({"messages": [{"role": "user", "content": user_input}]})
+        final_response = response['messages'][-1].content
+        
+        # Clean and save
+        final_response = final_response.replace("```markdown", "").replace("```", "").strip()
+        path = save_agent_output(final_response, 'Tutorial')
+        return {"content": final_response, "file_path": path}
+    
+    def QueryBot(self, user_input):
+        """Handle Q&A - single turn for REST API."""
+        # Use direct model invocation for Q&A
+        conversation = [SystemMessage(content=self.system_message)]
+        conversation.append(HumanMessage(content=user_input))
+        
+        response = self.model.invoke(conversation)
+        return {"content": response.content}
+
+class InterviewAgentClass:
+    """Agent for interview preparation and mock interviews."""
+    
+    AGENT_NAME = "interview_preparation"
+    
+    def __init__(self, system_message):
+        self.model = ChatGroq(
+            model="llama-3.1-8b-instant",
+            groq_api_key=GROQ_API_KEY,
+            temperature=0.5
+        )
+        self.system_message = system_message
+        
+        # Create search tool
+        @langchain_tool
+        def search_interview_topics(query: str) -> str:
+            """Search for interview topics and questions."""
+            search = DuckDuckGoSearchResults(max_results=5)
+            results = search.invoke(query)
+            return str(results)
+        
+        self.tools = [search_interview_topics]
+    
+    def check_and_respond(self, user_input, conversation_history):
+        """Check if query should be handled by this agent and respond in single LLM call."""
+        # Build conversation with history
+        messages_list = [SystemMessage(content=self.system_message)]
+        
+        # Add history (trimmed to last 10 messages)
+        if conversation_history:
+            history_trimmed = conversation_history[-20:]  # Last 10 pairs (20 messages)
+            for msg in history_trimmed:
+                if msg.get('role') == 'user':
+                    messages_list.append(HumanMessage(content=msg['content']))
+                elif msg.get('role') == 'assistant':
+                    messages_list.append(AIMessage(content=msg['content']))
+        
+        # Improved continuity check prompt
+        continuity_prompt = f"""User Query: {user_input}
+
+---
+BEFORE RESPONDING: Analyze if this query is about interview preparation, mock interviews, or interview questions for job hunting.
+
+You SHOULD HANDLE queries like:
+- "Help me prepare for interviews"
+- "Mock interview for data scientist"
+- "Common interview questions for..."
+- "Practice interviewing"
+- "Interview tips" or "behavioral questions"
+
+You should NOT HANDLE queries about:
+- Learning/tutorials (route to Learning Assistant)
+- Resume writing (route to Resume Builder)
+- Job searching/finding jobs (route to Job Search Agent)
+- Simple greetings (route to General Agent)
+
+Respond with JSON ONLY followed by your answer:
+{{
+  "should_handle": true/false,
+  "reason": "1-2 word reason"
+}}
+
+If should_handle is true, write your detailed response AFTER the JSON.
+If should_handle is false, write ONLY the JSON, nothing else.
+"""
+        messages_list.append(HumanMessage(content=continuity_prompt))
+        
+        response = self.model.invoke(messages_list)
+        content = response.content.strip()
+        
+        # Use shared parsing function
+        return parse_agent_continuity_response(content, "InterviewAgent")
+    
+    def Interview_questions(self, user_input):
+        """Generate curated interview questions."""
+        agent = create_agent(
+            model=self.model,
+            tools=self.tools,
+            system_prompt=self.system_message
+        )
+        
+        messages = [{"role": "user", "content": user_input}]
+        response = agent.invoke({"messages": messages})
+        
+        final_response = response['messages'][-1].content
+        final_response = final_response.replace("```markdown", "").replace("```", "").strip()
+        
+        path = save_agent_output(final_response, 'Interview_Questions')
+        return {"content": final_response, "file_path": path}
+    
+    def Mock_Interview(self, user_input):
+        """Conduct a mock interview session - single turn for REST API."""
+        model = self.model
+        conversation = [SystemMessage(content=self.system_message)]
+        
+        # Add user's initial query
+        conversation.append(HumanMessage(content=user_input))
+        
+        response = model.invoke(conversation)
+        
+        return {"content": response.content}
+
+class ResumeMakerAgent:
+    """Agent for creating personalized resumes."""
+    
+    AGENT_NAME = "resume_making"
+    
+    def __init__(self, system_message):
+        self.model = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            groq_api_key=GROQ_API_KEY,
+            temperature=0.5
+        )
+        self.system_message = system_message
+        
+        # Create search tool for trending keywords
+        @langchain_tool
+        def search_resume_trends(query: str) -> str:
+            """Search for trending resume keywords and job requirements."""
+            search = DuckDuckGoSearchResults(max_results=3)
+            results = search.invoke(query)
+            return str(results)
+        
+        self.tools = [search_resume_trends]
+    
+    def check_and_respond(self, user_input, conversation_history):
+        """Check if query should be handled by this agent and respond in single LLM call."""
+        # Build conversation with history
+        messages_list = [SystemMessage(content=self.system_message)]
+        
+        # Add history (trimmed to last 10 messages)
+        if conversation_history:
+            history_trimmed = conversation_history[-20:]  # Last 10 pairs (20 messages)
+            for msg in history_trimmed:
+                if msg.get('role') == 'user':
+                    messages_list.append(HumanMessage(content=msg['content']))
+                elif msg.get('role') == 'assistant':
+                    messages_list.append(AIMessage(content=msg['content']))
+        
+        # Improved continuity check prompt
+        continuity_prompt = f"""User Query: {user_input}
+
+---
+BEFORE RESPONDING: Analyze if this query is about resume creation, resume improvement, CV editing, or career profile building.
+
+You SHOULD HANDLE queries like:
+- "Help me build a resume"
+- "Create a resume for..."
+- "Improve my CV"
+- "What should I include in my resume?"
+- "Resume tips" or "ATS optimization"
+
+You should NOT HANDLE queries about:
+- Learning/tutorials (route to Learning Assistant)
+- Interview prep (route to Interview Coach)
+- Job searching/finding (route to Job Search Agent)
+- Simple greetings (route to General Agent)
+
+Respond with JSON ONLY followed by your answer:
+{{
+  "should_handle": true/false,
+  "reason": "1-2 word reason"
+}}
+
+If should_handle is true, write your detailed response AFTER the JSON.
+If should_handle is false, write ONLY the JSON, nothing else.
+"""
+        messages_list.append(HumanMessage(content=continuity_prompt))
+        
+        response = self.model.invoke(messages_list)
+        content = response.content.strip()
+        
+        # Use shared parsing function
+        return parse_agent_continuity_response(content, "ResumeAgent")
+    
+    def Create_Resume(self, user_input):
+        """Create a resume through AI - single turn for REST API."""
+        agent = create_agent(
+            model=self.model,
+            tools=self.tools,
+            system_prompt=self.system_message
+        )
+        
+        messages = [{"role": "user", "content": user_input}]
+        response = agent.invoke({"messages": messages})
+        
+        final_output = response['messages'][-1].content
+        final_output = final_output.replace("```markdown", "").replace("```", "").strip()
+        path = save_agent_output(final_output, 'Resume')
+        
+        return {"content": final_output, "file_path": path}
+
+class GeneralAgent:
+    """Agent for handling general queries, greetings, and introductions."""
+    
+    AGENT_NAME = "general"
+    
+    def __init__(self, system_message):
+        self.model = ChatGroq(
+            model="llama-3.1-8b-instant",
+            groq_api_key=GROQ_API_KEY,
+            temperature=0.7
+        )
+        self.system_message = system_message
+    
+    def check_and_respond(self, user_input, conversation_history):
+        """Check if query should be handled by this agent and respond in single LLM call."""
+        # Build conversation with history
+        messages_list = [SystemMessage(content=self.system_message)]
+        
+        # Add history (trimmed to last 10 messages)
+        if conversation_history:
+            history_trimmed = conversation_history[-20:]  # Last 10 pairs (20 messages)
+            for msg in history_trimmed:
+                if msg.get('role') == 'user':
+                    messages_list.append(HumanMessage(content=msg['content']))
+                elif msg.get('role') == 'assistant':
+                    messages_list.append(AIMessage(content=msg['content']))
+        
+        # Add current query with improved continuity check prompt
+        continuity_prompt = f"""User Query: {user_input}
+
+---
+BEFORE RESPONDING: Analyze if this query is a general greeting, introduction, small talk, or asking what you can do.
+
+You SHOULD HANDLE queries like:
+- Greetings: "hi", "hello", "hey"
+- Introduction requests: "who are you?", "what are you?"
+- Capability questions: "what can you do?", "how can you help?"
+- Small talk: "how are you?", "nice to meet you"
+
+You should NOT HANDLE queries about:
+- Learning/tutorials (route to Learning Assistant)
+- Resume writing (route to Resume Builder)
+- Interview prep (route to Interview Coach)
+- Job searching (route to Job Search Agent)
+
+Respond with JSON ONLY followed by your answer:
+{{
+  "should_handle": true/false,
+  "reason": "1-2 word reason"
+}}
+
+If should_handle is true, write your helpful response AFTER the JSON.
+If should_handle is false, write ONLY the JSON, nothing else.
+"""
+        messages_list.append(HumanMessage(content=continuity_prompt))
+        
+        response = self.model.invoke(messages_list)
+        content = response.content.strip()
+        
+        # Use shared parsing function
+        return parse_agent_continuity_response(content, "GeneralAgent")
+
+class JobSearchAgent:
+    """Agent for job search assistance."""
+    
+    AGENT_NAME = "job_search"
+    
+    def __init__(self):
+        self.model = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            groq_api_key=GROQ_API_KEY,
+            temperature=0.3
+        )
+        self.search_tool = DuckDuckGoSearchResults(max_results=10)
+    
+    def check_and_respond(self, user_input, conversation_history):
+        """Check if query should be handled by this agent and respond in single LLM call."""
+        # Build conversation with history
+        messages_list = []
+        
+        # Add history (trimmed to last 10 messages)
+        if conversation_history:
+            history_trimmed = conversation_history[-20:]  # Last 10 pairs (20 messages)
+            for msg in history_trimmed:
+                if msg.get('role') == 'user':
+                    messages_list.append(HumanMessage(content=msg['content']))
+                elif msg.get('role') == 'assistant':
+                    messages_list.append(AIMessage(content=msg['content']))
+        
+        # Improved continuity check prompt
+        continuity_prompt = f"""User Query: {user_input}
+
+---
+BEFORE RESPONDING: Analyze if this query is about job search, job listings, finding employment opportunities, or job market research.
+
+You SHOULD HANDLE queries like:
+- "Find jobs for me"
+- "Search for data scientist positions"
+- "Job openings in..."
+- "Available jobs for..."
+- "Job market for..."
+
+You should NOT HANDLE queries about:
+- Learning/tutorials (route to Learning Assistant)
+- Interview prep (route to Interview Coach)
+- Resume building (route to Resume Builder)
+- Simple greetings (route to General Agent)
+
+Respond with JSON ONLY followed by your answer:
+{{
+  "should_handle": true/false,
+  "reason": "1-2 word reason"
+}}
+
+If should_handle is true, I will perform the job search and provide results.
+If should_handle is false, write ONLY the JSON, nothing else.
+"""
+        messages_list.append(HumanMessage(content=continuity_prompt))
+        
+        response = self.model.invoke(messages_list)
+        content = response.content.strip()
+        
+        # Use shared parsing function
+        result = parse_agent_continuity_response(content, "JobSearchAgent")
+        
+        # If should handle, actually perform job search
+        if result["should_handle"]:
+            try:
+                print(f"JobSearchAgent: Performing search for: {user_input}")
+                search_results = self.search_tool.invoke(user_input)
+                prompt = ChatPromptTemplate.from_template(
+                    "Refactor the following job search results into a well-structured response. "
+                    "Include job titles, companies, links, and brief descriptions.\n\n"
+                    "Search Results: {results}"
+                )
+                chain = prompt | self.model
+                jobs_response = chain.invoke({"results": search_results}).content
+                
+                return {
+                    "should_handle": True,
+                    "response": jobs_response,
+                    "reason": result["reason"]
+                }
+            except Exception as e:
+                print(f"ERROR in job search: {str(e)}")
+                return {
+                    "should_handle": True,
+                    "response": f"I can help you search for jobs. Please provide more details like job role and location.",
+                    "reason": result["reason"]
+                }
+        else:
+            return result
+    
+    def find_jobs(self, user_input):
+        """Search for jobs and format results."""
+        results = self.search_tool.invoke(user_input)
+        
+        prompt = ChatPromptTemplate.from_template(
+            "Refactor the following job search results into a well-structured markdown file. "
+            "Include job titles, companies, links, and brief descriptions.\n\n"
+            "Search Results: {results}"
+        )
+        
+        chain = prompt | self.model
+        jobs = chain.invoke({"results": results}).content
+        
+        jobs = jobs.replace("```markdown", "").replace("```", "").strip()
+        path = save_agent_output(jobs, 'Job_Search')
+        return {"content": jobs, "file_path": path}
+
+# Helper function to get agent instance by name
+def get_agent_by_name(agent_name):
+    """Get agent instance and system message by agent name."""
+    agent_configs = {
+        "general": {
+            "class": GeneralAgent,
+            "system_message": (
+                "You are PrepWise AI, a personalized AI career coach dedicated to helping users crack their dream job offers. "
+                "You are friendly, supportive, and motivating. When users greet you or ask general questions, "
+                "respond warmly and introduce your capabilities: learning resources, interview preparation, resume building, and job search assistance. "
+                "Keep your responses concise, engaging, and encouraging. Guide users to explore your specialized features."
+            )
+        },
+        "learning_resource": {
+            "class": LearningResourceAgent,
+            "system_message": (
+                "You are an expert Generative AI Engineer with extensive training and problem-solving experience. "
+                "Provide insightful, detailed solutions through interactive conversation."
+            )
+        },
+        "tutorial": {
+            "class": LearningResourceAgent,
+            "system_message": (
+                "You are a Senior Generative AI Developer and experienced technical blogger. "
+                "Create comprehensive tutorials with clear explanations, well-commented code examples, "
+                "and reference links. Output in markdown format."
+            )
+        },
+        "interview_preparation": {
+            "class": InterviewAgentClass,
+            "system_message": (
+                "You are an expert in Generative AI interview preparation. "
+                "Provide curated interview questions with explanations, references, and links. "
+                "Conduct mock interviews with realistic scenarios."
+            )
+        },
+        "resume_making": {
+            "class": ResumeMakerAgent,
+            "system_message": (
+                "You are an expert resume consultant specializing in AI and tech roles. "
+                "Based on the user's request, create a comprehensive ATS-optimized resume "
+                "with trending keywords in markdown format. Ask for any missing details if needed."
+            )
+        },
+        "job_search": {
+            "class": JobSearchAgent,
+            "system_message": None  # JobSearchAgent doesn't use system_message in __init__
+        }
+    }
+    
+    config = agent_configs.get(agent_name)
+    if not config:
+        return None
+    
+    if config["system_message"]:
+        return config["class"](config["system_message"])
+    else:
+        return config["class"]()
+
+# Workflow Node Functions
+def categorize_query(state: MultiAgentState) -> MultiAgentState:
+    """Categorize user query into main categories."""
+    if not GROQ_API_KEY:
+        return {"category": "error"}
+    
+    llm_groq = ChatGroq(
+        model="llama-3.1-8b-instant",
+        groq_api_key=GROQ_API_KEY,
+        temperature=0.5
+    )
+    
+    prompt = ChatPromptTemplate.from_template(
+        "Categorize the following query into ONE category (respond with number only):\n"
+        "0: General greeting, introduction, or casual conversation (hi, hello, who are you, what can you do)\n"
+        "1: Learn Generative AI Technology\n"
+        "2: Resume Making\n"
+        "3: Interview Preparation\n"
+        "4: Job Search\n\n"
+        "Examples:\n"
+        "'Hi there!' -> 0\n"
+        "'Who are you?' -> 0\n"
+        "'What can you help me with?' -> 0\n"
+        "'Teach me about LangChain' -> 1\n"
+        "'Help with my resume' -> 2\n"
+        "'Practice interview questions' -> 3\n"
+        "'Find AI jobs' -> 4\n\n"
+        "Query: {query}\n\n"
+        "Category (number only):"
+    )
+    
+    chain = prompt | llm_groq
+    category = chain.invoke({"query": state["query"]}).content.strip()
+    return {"category": category}
+
+def handle_learning_resource_node(state: MultiAgentState) -> MultiAgentState:
+    """Sub-categorize learning queries."""
+    if not GROQ_API_KEY:
+        return {"category": "error"}
+    
+    llm_groq = ChatGroq(
+        model="llama-3.1-8b-instant",
+        groq_api_key=GROQ_API_KEY,
+        temperature=0.5
+    )
+    
+    prompt = ChatPromptTemplate.from_template(
+        "Categorize this learning query (respond with one word only):\n"
+        "- Tutorial: Create blog/documentation\n"
+        "- Question: General Q&A\n\n"
+        "Examples:\n"
+        "'Create a LangChain tutorial' -> Tutorial\n"
+        "'What is RAG?' -> Question\n\n"
+        "Query: {query}\n\n"
+        "Sub-category:"
+    )
+    
+    chain = prompt | llm_groq
+    response = chain.invoke({"query": state["query"]}).content.strip()
+    return {"category": response}
+
+def handle_interview_preparation_node(state: MultiAgentState) -> MultiAgentState:
+    """Sub-categorize interview queries."""
+    if not GROQ_API_KEY:
+        return {"category": "error"}
+    
+    llm_groq = ChatGroq(
+        model="llama-3.1-8b-instant",
+        groq_api_key=GROQ_API_KEY,
+        temperature=0.5
+    )
+    
+    prompt = ChatPromptTemplate.from_template(
+        "Categorize this interview query (respond with one word only):\n"
+        "- Question: Interview topic questions\n\n"
+        "Query: {query}\n\n"
+        "Sub-category:"
+    )
+    
+    chain = prompt | llm_groq
+    response = chain.invoke({"query": state["query"]}).content.strip()
+    return {"category": response}
+
+# Response Generation Functions
+def general_agent_node(state: MultiAgentState) -> MultiAgentState:
+    """Handle general queries, greetings, and introductions."""
+    agent = get_agent_by_name("general")
+    messages = state.get("messages", [])
+    
+    result = agent.check_and_respond(state["query"], messages)
+    
+    return {
+        "response": result["response"],
+        "current_agent": "general",
+        "should_reroute": not result["should_handle"]
+    }
+
+def tutorial_agent_node(state: MultiAgentState) -> MultiAgentState:
+    """Generate tutorials for learning."""
+    agent = get_agent_by_name("tutorial")
+    messages = state.get("messages", [])
+    
+    result = agent.check_and_respond(state["query"], messages)
+    
+    return {
+        "response": result["response"],
+        "current_agent": "tutorial",
+        "should_reroute": not result["should_handle"]
+    }
+
+def ask_query_bot_node(state: MultiAgentState) -> MultiAgentState:
+    """Handle Q&A sessions."""
+    agent = get_agent_by_name("learning_resource")
+    messages = state.get("messages", [])
+    
+    result = agent.check_and_respond(state["query"], messages)
+    
+    return {
+        "response": result["response"],
+        "current_agent": "learning_resource",
+        "should_reroute": not result["should_handle"]
+    }
+
+def interview_topics_questions_node(state: MultiAgentState) -> MultiAgentState:
+    """Generate interview questions."""
+    agent = get_agent_by_name("interview_preparation")
+    messages = state.get("messages", [])
+    
+    result = agent.check_and_respond(state["query"], messages)
+    
+    return {
+        "response": result["response"],
+        "current_agent": "interview_preparation",
+        "should_reroute": not result["should_handle"]
+    }
+
+def mock_interview_node(state: MultiAgentState) -> MultiAgentState:
+    """Conduct mock interview."""
+    agent = get_agent_by_name("interview_preparation")
+    messages = state.get("messages", [])
+    
+    result = agent.check_and_respond(state["query"], messages)
+    
+    return {
+        "response": result["response"],
+        "current_agent": "interview_preparation",
+        "should_reroute": not result["should_handle"]
+    }
+
+def handle_resume_making_node(state: MultiAgentState) -> MultiAgentState:
+    """Create customized resumes."""
+    agent = get_agent_by_name("resume_making")
+    messages = state.get("messages", [])
+    
+    result = agent.check_and_respond(state["query"], messages)
+    
+    return {
+        "response": result["response"],
+        "current_agent": "resume_making",
+        "should_reroute": not result["should_handle"]
+    }
+
+def job_search_node(state: MultiAgentState) -> MultiAgentState:
+    """Search for jobs."""
+    agent = get_agent_by_name("job_search")
+    messages = state.get("messages", [])
+    
+    result = agent.check_and_respond(state["query"], messages)
+    
+    return {
+        "response": result["response"],
+        "current_agent": "job_search",
+        "should_reroute": not result["should_handle"]
+    }
+
+# Routing Functions
+def route_query(state: MultiAgentState) -> str:
+    """Route based on main category."""
+    category = state["category"].strip()
+    
+    if '0' in category:
+        return "general_agent"
+    elif '1' in category:
+        return "handle_learning_resource"
+    elif '2' in category:
+        return "handle_resume_making"
+    elif '3' in category:
+        return "handle_interview_preparation"
+    elif '4' in category:
+        return "job_search"
+    else:
+        return "general_agent"
+
+def route_learning(state: MultiAgentState) -> str:
+    """Route learning sub-category."""
+    category = state["category"].lower()
+    
+    if 'question' in category:
+        return "ask_query_bot"
+    elif 'tutorial' in category:
+        return "tutorial_agent"
+    else:
+        return "ask_query_bot"
+
+def route_interview(state: MultiAgentState) -> str:
+    """Route interview sub-category."""
+    category = state["category"].lower()
+    
+    if 'question' in category:
+        return "interview_topics_questions"
+    elif 'mock' in category:
+        return "mock_interview"
+    else:
+        return "interview_topics_questions"
+
+# Build LangGraph Workflow
+def build_multi_agent_workflow():
+    """Build and compile the multi-agent workflow."""
+    if not GROQ_API_KEY:
+        return None
+    
+    workflow = StateGraph(MultiAgentState)
+
+    # Add all nodes
+    workflow.add_node("categorize", categorize_query)
+    workflow.add_node("general_agent", general_agent_node)
+    workflow.add_node("handle_learning_resource", handle_learning_resource_node)
+    workflow.add_node("handle_resume_making", handle_resume_making_node)
+    workflow.add_node("handle_interview_preparation", handle_interview_preparation_node)
+    workflow.add_node("job_search", job_search_node)
+    workflow.add_node("interview_topics_questions", interview_topics_questions_node)
+    workflow.add_node("mock_interview", mock_interview_node)
+    workflow.add_node("tutorial_agent", tutorial_agent_node)
+    workflow.add_node("ask_query_bot", ask_query_bot_node)
+
+    # Set entry point
+    workflow.add_edge(START, "categorize")
+
+    # Add conditional edges from categorize
+    workflow.add_conditional_edges(
+        "categorize",
+        route_query,
+        {
+            "general_agent": "general_agent",
+            "handle_learning_resource": "handle_learning_resource",
+            "handle_resume_making": "handle_resume_making",
+            "handle_interview_preparation": "handle_interview_preparation",
+            "job_search": "job_search"
+        }
+    )
+
+    # Add conditional edges for learning
+    workflow.add_conditional_edges(
+        "handle_learning_resource",
+        route_learning,
+        {
+            "tutorial_agent": "tutorial_agent",
+            "ask_query_bot": "ask_query_bot",
+        }
+    )
+
+    # Add conditional edges for interview
+    workflow.add_conditional_edges(
+        "handle_interview_preparation",
+        route_interview,
+        {
+            "interview_topics_questions": "interview_topics_questions",
+            "mock_interview": "mock_interview",
+        }
+    )
+
+    # Add edges to END
+    workflow.add_edge("general_agent", END)
+    workflow.add_edge("handle_resume_making", END)
+    workflow.add_edge("job_search", END)
+    workflow.add_edge("interview_topics_questions", END)
+    workflow.add_edge("mock_interview", END)
+    workflow.add_edge("ask_query_bot", END)
+    workflow.add_edge("tutorial_agent", END)
+
+    # Compile the workflow
+    return workflow.compile()
+
+# Initialize the multi-agent workflow
+multi_agent_app = build_multi_agent_workflow()
+
+@app.route('/multi-agent/chat', methods=['POST'])
+def multi_agent_chat():
+    """Process user query through the multi-agent workflow with conversation history."""
+    if not GROQ_API_KEY:
+        return jsonify({"error": "Multi-agent chat is not configured. GROQ_API_KEY is missing."}), 503
+    
+    if multi_agent_app is None:
+        return jsonify({"error": "Multi-agent workflow failed to initialize."}), 503
+    
+    data = request.get_json()
+    query = data.get('query')
+    messages = data.get('messages', [])  # Conversation history from frontend
+    current_agent_name = data.get('current_agent')  # Current active agent
+
+    print("Received query:", query)
+    print("Current agent:", current_agent_name)
+    
+    if not query:
+        return jsonify({"error": "Query is required"}), 400
+    
+    try:
+        # Check if we have a current agent and should try to continue with it
+        if current_agent_name:
+            agent = get_agent_by_name(current_agent_name)
+            
+            if agent:
+                # Ask agent if it should handle this query
+                result = agent.check_and_respond(query, messages)
+
+                print("final response :", {
+                    "query": query,
+                    "category": result.get("category", "Unknown"),
+                    "response": result.get("response", "No response generated"),
+                    "current_agent": current_agent_name,
+                    "should_continue": True,
+                    "status": "success"
+                })
+                
+                # If agent can handle the query
+                if result["should_handle"]:
+                    return jsonify({
+                        "query": query,
+                        "response": result["response"],
+                        "current_agent": current_agent_name,
+                        "should_continue": True,
+                        "status": "success"
+                    })
+                else:
+                    # Agent says it cannot handle, need to reroute
+                    print(f"Agent '{current_agent_name}' cannot handle query. Reason: {result.get('reason', 'N/A')}")
+                    # Fall through to routing workflow
+        
+        # No current agent or agent cannot handle - go through routing workflow
+        results = multi_agent_app.invoke({
+            "query": query,
+            "messages": messages,
+            "current_agent": current_agent_name or "",
+            "category": "",
+            "response": "",
+            "should_reroute": False
+        })
+        
+        # Extract the agent that handled the request
+        final_agent = results.get("current_agent", "unknown")
+
+        print("final response :", {
+            "query": query,
+            "category": results.get("category", "Unknown"),
+            "response": results.get("response", "No response generated"),
+            "current_agent": final_agent,
+            "should_continue": True,
+            "status": "success"
+        })
+        
+        return jsonify({
+            "query": query,
+            "category": results.get("category", "Unknown"),
+            "response": results.get("response", "No response generated"),
+            "current_agent": final_agent,
+            "should_continue": True,
+            "status": "success"
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error processing query: {str(e)}"}), 500
 
 
 if __name__ == "__main__":

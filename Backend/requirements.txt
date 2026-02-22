@@ -11,3 +11,8 @@ pandas
 jobspy
 pymongo[srv]
 PyJWT
+langchain
+langchain-community
+langchain-groq
+duckduckgo-search
+langgraph

@@ -20,6 +20,11 @@ coverage/
 # production
 /build
 
+prep_wise_venv/
+Agent_output/
+temp/
+test/
+
 # misc
 .DS_Store
 .env
