@@ -1,19 +1,14 @@
+CLEAN_IMPORTS = True
+import os
 import asyncio
 import logging
-import sounddevice as sd
-import numpy as np
-from google import genai
-from google.genai import types
-import os
-from queue import Queue
 import threading
 from dotenv import load_dotenv
 import json
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect, send_from_directory
 from flask_cors import CORS
 import time
 import math
-import fitz  
 import tempfile
 import requests
 import pdfplumber
@@ -21,6 +16,180 @@ from pymongo import MongoClient, ASCENDING
 from pymongo.errors import DuplicateKeyError
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
+from auth_utils import (
+    require_auth, verify_token, revoke_token, log_activity,
+    log_question_bank_activity, log_resume_activity, log_mock_interview,
+    log_job_search, get_user_stats
+)
+import auth_utils
+from models import get_collections, create_indexes, serialize_doc
+
+# Load .env file FIRST before accessing environment variables
+load_dotenv()
+
+# Configure logging
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+logger.info(f"PrepWise API starting up (Log Level: {LOG_LEVEL})")
+
+app = Flask(__name__)
+
+# Configure CORS to only allow frontend URLs
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 3600
+    },
+    r"/auth/*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"],
+        "supports_credentials": True,
+        "max_age": 3600
+    },
+    r"/generate*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 3600
+    },
+    r"/improve*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 3600
+    },
+    r"/evaluate*": {
+        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "methods": ["POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 3600
+    }
+})
+
+# --- Chat Sessions API ---
+@app.route('/api/chat-sessions/<session_id>', methods=['DELETE'])
+@require_auth
+def delete_chat_session(session_id):
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    from bson import ObjectId
+    result = db['chat_sessions'].delete_one({'_id': ObjectId(session_id), 'user_id': user['_id']})
+    if result.deleted_count == 1:
+        return jsonify({'message': 'Chat session deleted'})
+    else:
+        return jsonify({'error': 'Chat session not found or not authorized'}), 404
+
+@app.route('/api/chat-sessions/<session_id>', methods=['PATCH'])
+@require_auth
+def update_chat_session(session_id):
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    data = request.get_json()
+    new_topic = data.get('topic', '').strip()
+    
+    if not new_topic:
+        return jsonify({'error': 'Topic cannot be empty'}), 400
+    
+    from bson import ObjectId
+    result = db['chat_sessions'].update_one(
+        {'_id': ObjectId(session_id), 'user_id': user['_id']},
+        {'$set': {'topic': new_topic}}
+    )
+    
+    if result.matched_count == 1:
+        return jsonify({'message': 'Chat session updated', 'topic': new_topic})
+    else:
+        return jsonify({'error': 'Chat session not found or not authorized'}), 404
+
+@app.route('/api/chat-sessions', methods=['GET', 'DELETE'])
+@require_auth
+def handle_chat_sessions():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    if request.method == 'DELETE':
+        # Delete all chat sessions for this user
+        result = db['chat_sessions'].delete_many({'user_id': user['_id']})
+        return jsonify({'message': f'{result.deleted_count} chat sessions deleted'})
+    
+    # GET request
+    # Sort by last_message_at descending (most recent first)
+    sessions = list(db['chat_sessions'].find({'user_id': user['_id']}).sort('last_message_at', -1))
+    return jsonify({'sessions': serialize_doc(sessions)})
+
+# --- V2V Agent Evaluation API ---
+@app.route('/api/v2v-evaluation', methods=['POST'])
+@require_auth
+def save_v2v_evaluation():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    data = request.get_json()
+    score = data.get('score')
+    suggestions = data.get('suggestions')
+    details = data.get('details')
+    timestamp = datetime.now(timezone.utc)
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    eval_doc = {
+        'user_id': user['_id'],
+        'email': email,
+        'score': score,
+        'suggestions': suggestions,
+        'details': details,
+        'timestamp': timestamp
+    }
+    db['v2v_evaluations'].insert_one(eval_doc)
+    return jsonify({'message': 'Evaluation saved'})
+
+@app.route('/api/v2v-evaluations', methods=['GET'])
+@require_auth
+def get_v2v_evaluations():
+    db = getattr(app, 'mongo_db', None)
+    email = getattr(request, 'user_email', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+    user = db['users'].find_one({'email': email})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    evals = list(db['v2v_evaluations'].find({'user_id': user['_id']}))
+    return jsonify({'evaluations': serialize_doc(evals)})
+
+# Import datetime, timedelta, timezone for subsequent route usage
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 
@@ -32,14 +201,355 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, trim
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain.agents import create_agent
 from langchain.tools import tool as langchain_tool
+from bson import ObjectId
 
-app = Flask(__name__)
-CORS(app)
 
+# Frontend & Google OAuth Configuration
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = "http://localhost:5000/auth/google/callback"
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "supersekrit")
+
+# Google OAuth Login - Step 1: Redirect to Google
+@app.route('/auth/google/login')
+def google_login():
+    if not GOOGLE_CLIENT_ID:
+        return jsonify({"error": "Google OAuth not configured"}), 500
+    
+    # Build the Google OAuth URL
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "scope": "openid email profile",
+        "response_type": "code",
+        "access_type": "offline",
+        "prompt": "consent"
+    }
+    
+    from urllib.parse import urlencode
+    auth_url = f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
+    return redirect(auth_url)
+
+# Google OAuth Callback - Step 2: Handle Google's redirect
+@app.route('/auth/google/callback')
+def google_callback():
+    code = request.args.get('code')
+    error = request.args.get('error')
+    
+    # Check if user denied access
+    if error:
+        logger.warning(f"OAuth error from Google: {error}")
+        return redirect(f"{FRONTEND_URL}/login?error=access_denied")
+    
+    if not code:
+        logger.warning("No authorization code received")
+        return redirect(f"{FRONTEND_URL}/login?error=no_code")
+    
+    # Exchange code for access token
+    token_data = {
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "grant_type": "authorization_code"
+    }
+    
+    try:
+        logger.debug("Exchanging authorization code for access token...")
+        token_response = requests.post(GOOGLE_TOKEN_URL, data=token_data, timeout=10)
+        logger.debug(f"Token response status: {token_response.status_code}")
+        
+        if token_response.status_code != 200:
+            logger.error(f"Token exchange failed: {token_response.text}")
+            return redirect(f"{FRONTEND_URL}/login?error=token_exchange_failed")
+        
+        tokens = token_response.json()
+        access_token = tokens.get("access_token")
+        
+        if not access_token:
+            logger.warning("No access token in OAuth response")
+            return redirect(f"{FRONTEND_URL}/login?error=no_token")
+        
+        # Get user info from Google
+        logger.debug("Fetching user info from Google...")
+        headers = {"Authorization": f"Bearer {access_token}"}
+        user_response = requests.get(GOOGLE_USERINFO_URL, headers=headers, timeout=10)
+        
+        if user_response.status_code != 200:
+            logger.error(f"Failed to fetch user info: {user_response.text}")
+            return redirect(f"{FRONTEND_URL}/login?error=user_info_failed")
+        
+        user_info = user_response.json()
+        logger.info(f"User authenticated via Google: {user_info.get('email')}")
+        
+        # Store user in MongoDB if available
+        mongo_uri = os.environ.get("MONGODB_URI")
+        logger.debug(f"MongoDB availability - URI: {bool(mongo_uri)}, db: {db is not None}, users_col: {users_col is not None}")
+        if mongo_uri is not None and db is not None and users_col is not None:
+            try:
+                # Check if user exists
+                existing_user = users_col.find_one({"email": user_info.get("email")})
+                
+                user_doc = {
+                    "google_id": user_info.get("id"),
+                    "email": user_info.get("email"),
+                    "firstName": user_info.get("given_name", ""),
+                    "lastName": user_info.get("family_name", ""),
+                    "name": user_info.get("name"),
+                    "picture": user_info.get("picture"),  # Store Google profile picture
+                    "last_login": datetime.now(timezone.utc),
+                }
+                
+                if existing_user:
+                    # Update existing user
+                    users_col.update_one(
+                        {"email": user_info.get("email")},
+                        {
+                            "$set": user_doc,
+                            "$inc": {"total_login_count": 1}
+                        }
+                    )
+                    user_id = existing_user['_id']
+                else:
+                    # Create new user
+                    user_doc.update({
+                        "createdAt": datetime.now(timezone.utc),
+                        "subscription_tier": "free",
+                        "total_login_count": 1
+                    })
+                    result = users_col.insert_one(user_doc)
+                    user_id = result.inserted_id
+                
+                # Log login activity
+                log_activity(db, user_info.get("email"), "login", "Google OAuth Login")
+                logger.info(f"User stored in database: {user_info.get('email')}")
+                
+            except Exception as e:
+                logger.error(f"MongoDB storage failed: {e}")
+                # Continue even if MongoDB fails
+        
+        # Generate JWT session token
+        try:
+            session_payload = {
+                "sub": user_info.get("id"),
+                "email": user_info.get("email"),
+                "name": user_info.get("name"),
+                "exp": datetime.now(timezone.utc) + timedelta(days=7),
+                "iat": datetime.now(timezone.utc),
+            }
+            session_token = jwt.encode(session_payload, JWT_SECRET, algorithm="HS256")
+            logger.debug(f"JWT token generated successfully for OAuth user")
+            
+            # Redirect to frontend with token
+            return redirect(f"{FRONTEND_URL}/#session_token={session_token}")
+        except Exception as e:
+            logger.error(f"JWT generation failed: {e}")
+            return redirect(f"{FRONTEND_URL}/login?error=token_generation_failed")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"OAuth request failed: {e}")
+        return redirect(f"{FRONTEND_URL}/login?error=oauth_failed")
+    except Exception as e:
+        logger.error(f"Unexpected error in OAuth callback: {e}", exc_info=True)
+        return redirect(f"{FRONTEND_URL}/login?error=server_error")
+
+
+# ==================== EMAIL/PASSWORD AUTHENTICATION ====================
+
+# Signup endpoint - Create new user account with email/password
+@app.route('/auth/signup', methods=['POST'])
+def signup():
+    try:
+        data = request.get_json()
+        first_name = data.get('firstName', '').strip()
+        last_name = data.get('lastName', '').strip()
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        accept_marketing = data.get('acceptMarketing', False)
+        
+        # Validate required fields
+        if not first_name or not last_name or not email or not password:
+            return jsonify({'error': 'All fields are required'}), 400
+        
+        # Validate email format
+        import re
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_regex, email):
+            return jsonify({'error': 'Invalid email format'}), 400
+        
+        # Validate password length
+        if len(password) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters long'}), 400
+        
+        # Check if MongoDB is available
+        mongo_uri = os.environ.get("MONGODB_URI")
+        if not mongo_uri:
+            return jsonify({'error': 'Database not configured'}), 500
+        
+        # Connect to MongoDB
+        client = MongoClient(mongo_uri)
+        db_name = os.environ.get("MONGODB_DBNAME") or "prepwise"
+        db = client[db_name]
+        users_col = db['users']
+        
+        # Check if user already exists
+        existing_user = users_col.find_one({"email": email})
+        if existing_user:
+            return jsonify({'error': 'An account with this email already exists'}), 409
+        
+        # Hash password
+        hashed_password = generate_password_hash(password)
+        
+        # Create user document
+        user_doc = {
+            "email": email,
+            "password": hashed_password,
+            "firstName": first_name,
+            "lastName": last_name,
+            "name": f"{first_name} {last_name}",
+            "picture": "",  # No picture initially
+            "accept_marketing": accept_marketing,
+            "subscription_tier": "free",
+            "createdAt": datetime.now(timezone.utc),
+            "last_login": datetime.now(timezone.utc),
+            "total_login_count": 0,
+            "auth_provider": "email"  # Track auth method
+        }
+        
+        # Insert user into database
+        result = users_col.insert_one(user_doc)
+        user_id = str(result.inserted_id)
+        
+        logger.info(f"New user created: {email}")
+        
+        return jsonify({
+            'message': 'Account created successfully',
+            'userId': user_id
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Signup error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to create account. Please try again.'}), 500
+
+
+# Login endpoint - Authenticate user with email/password
+@app.route('/auth/login', methods=['POST'])
+def login():
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        
+        # Validate required fields
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        # Check if MongoDB is available
+        mongo_uri = os.environ.get("MONGODB_URI")
+        if not mongo_uri:
+            return jsonify({'error': 'Database not configured'}), 500
+        
+        # Connect to MongoDB
+        client = MongoClient(mongo_uri)
+        db_name = os.environ.get("MONGODB_DBNAME") or "prepwise"
+        db = client[db_name]
+        users_col = db['users']
+        
+        # Find user by email
+        user = users_col.find_one({"email": email})
+        
+        if not user:
+            return jsonify({'error': 'Invalid email or password'}), 401
+        
+        # Check if user registered with email/password
+        if not user.get('password'):
+            return jsonify({'error': 'This account uses Google login. Please sign in with Google.'}), 401
+        
+        # Verify password
+        if not check_password_hash(user['password'], password):
+            return jsonify({'error': 'Invalid email or password'}), 401
+        
+        # Update last login and increment login count
+        users_col.update_one(
+            {"email": email},
+            {
+                "$set": {"last_login": datetime.now(timezone.utc)},
+                "$inc": {"total_login_count": 1}
+            }
+        )
+        
+        # Log login activity
+        log_activity(db, email, "login", "Email/Password Login")
+        
+        # Generate JWT token
+        token_payload = {
+            "sub": str(user['_id']),  # Use MongoDB _id as subject
+            "email": email,
+            "name": user.get('name', ''),
+            "exp": datetime.now(timezone.utc) + timedelta(days=7),
+            "iat": datetime.now(timezone.utc),
+        }
+        token = jwt.encode(token_payload, JWT_SECRET, algorithm="HS256")
+        
+        # Return user data (exclude password)
+        user_data = {
+            "email": user['email'],
+            "name": user.get('name', ''),
+            "firstName": user.get('firstName', ''),
+            "lastName": user.get('lastName', ''),
+            "picture": user.get('picture', ''),
+            "subscription_tier": user.get('subscription_tier', 'free')
+        }
+        
+        logger.info(f"User logged in: {email}")
+        
+        return jsonify({
+            'token': token,
+            'user': user_data
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Login error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to sign in. Please try again.'}), 500
+
+
+# Endpoint for auto-login using JWT session token
+@app.route("/auto-login", methods=["POST"])
+def auto_login():
+    data = request.get_json()
+    token = data.get("session_token")
+    if not token:
+        return jsonify({"error": "Session token required"}), 400
+    import jwt
+    jwt_secret = os.environ.get("JWT_SECRET_KEY", "jwtsecret")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        email = payload.get("email")
+        if not email:
+            return jsonify({"error": "Invalid token"}), 401
+        from pymongo import MongoClient
+        mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+        client = MongoClient(mongo_uri)
+        db = client[os.environ.get("MONGO_DB", "prepwise")]
+        users_col = db[os.environ.get("MONGO_USER_COLLECTION", "users")]
+        user = users_col.find_one({"email": email}, {"_id": 0})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        return jsonify({"user": user})
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Session expired"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "Invalid token"}), 401
+    
 try:
-	from jobspy import scrape_jobs
+    from jobspy import scrape_jobs
 except ImportError:
-	scrape_jobs = None
+    scrape_jobs = None
 job_cache = {}
 cache_expiry = 300 
 
@@ -61,6 +571,7 @@ def scrape_review():
 	return jsonify({'glassdoor_link': url})
 
 @app.route('/api/jobs', methods=['GET'])
+@require_auth  # Add authentication
 def get_jobs():
 	query = request.args.get('query', '')
 	location = request.args.get('location', '')
@@ -69,7 +580,19 @@ def get_jobs():
 	now = time.time()
 	# Return cached if not expired
 	if cache_key in job_cache and now - job_cache[cache_key]["timestamp"] < cache_expiry:
-		return jsonify({"jobs": job_cache[cache_key]["data"]})
+		jobs_list = job_cache[cache_key]["data"]
+		
+		# Log the search activity
+		if db is not None:
+			log_job_search(db, request.user_email, query, location, num_jobs, len(jobs_list))
+			# Format activity name based on whether location is specified
+			if location and location.lower() not in ['any', '', 'none']:
+				activity_name = f"{query} in {location}"
+			else:
+				activity_name = query
+			log_activity(db, request.user_email, "job_finder", activity_name)
+		
+		return jsonify({"jobs": jobs_list})
 	# Map location/country to valid JobSpy country code
 	location_to_country = {
 		"india": "india", "in": "india", "bengaluru": "india", "bangalore": "india",
@@ -93,20 +616,57 @@ def get_jobs():
 	try:
 		if scrape_jobs is None:
 			raise ImportError("jobspy is not installed")
-		jobs = scrape_jobs(
-			site_name=["linkedin", "indeed"],
-			search_term=query,
-			location=location,
-			num_jobs=num_jobs,
-			country=country
-		)
-		jobs_list = jobs.to_dict("records")
+		
+		# Try scraping with Indeed first (more reliable), then LinkedIn
+		jobs_df = None
+		error_messages = []
+		
+		# Try Indeed first
+		try:
+			jobs_df = scrape_jobs(
+				site_name=["indeed"],
+				search_term=query,
+				location=location,
+				results_wanted=num_jobs,
+				country_indeed=country
+			)
+		except Exception as e:
+			error_messages.append(f"Indeed: {str(e)}")
+		
+		# If Indeed failed or returned no results, try LinkedIn
+		if jobs_df is None or len(jobs_df) == 0:
+			try:
+				jobs_df = scrape_jobs(
+					site_name=["linkedin"],
+					search_term=query,
+					location=location,
+					results_wanted=num_jobs
+				)
+			except Exception as e:
+				error_messages.append(f"LinkedIn: {str(e)}")
+		
+		if jobs_df is None or len(jobs_df) == 0:
+			error_msg = "No jobs found. " + "; ".join(error_messages) if error_messages else "Try different search terms or location."
+			return jsonify({"error": error_msg, "jobs": []})
+		
+		jobs_list = jobs_df.to_dict("records")
 		# Replace NaN values with None
 		for job in jobs_list:
 			for key, value in job.items():
 				if isinstance(value, float) and math.isnan(value):
 					job[key] = None
 		job_cache[cache_key] = {"data": jobs_list, "timestamp": now}
+		
+		# Log the search activity
+		if db is not None:
+			log_job_search(db, request.user_email, query, location, num_jobs, len(jobs_list))
+			# Format activity name based on whether location is specified
+			if location and location.lower() not in ['any', '', 'none']:
+				activity_name = f"{query} in {location}"
+			else:
+				activity_name = query
+			log_activity(db, request.user_email, "job_finder", activity_name)
+		
 		return jsonify({"jobs": jobs_list})
 	except Exception as e:
 		return jsonify({"error": str(e), "jobs": []})
@@ -133,268 +693,30 @@ JWT_EXPIRES_MIN = int(os.getenv("JWT_EXPIRES_MIN", "60"))
 mongo_client = None
 db = None
 users_col = None
+collections = None
 if MONGODB_URI:
     try:
         mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
         db = mongo_client[MONGODB_DBNAME]
         users_col = db["users"]
         users_col.create_index([("email", ASCENDING)], unique=True)
+        # Attach db and users_col to app for global access
+        app.mongo_db = db
+        app.users_col = users_col
+        # Get all collections and create indexes
+        collections = get_collections(db)
+        create_indexes(db)
+        logger.info("MongoDB connected and indexes created")
     except Exception as e:
-        print(f"Warning: Failed to initialize MongoDB: {e}")
+        logger.error(f"Failed to initialize MongoDB: {e}")
 else:
-    print("Warning: MONGODB_URI not set. Auth endpoints will return 503.")
-client = genai.Client(api_key=API_KEY)
-model = "gemini-live-2.5-flash-preview"
-config = {
-    "response_modalities": ["AUDIO"],
-    "speech_config": types.SpeechConfig(
-        voice_config=types.VoiceConfig(
-            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                voice_name="LEDA"
-            )
-        )
-    ),
-   "system_instruction": "You are a professional mock interviewer. Conduct realistic, adaptive interview simulations. Ask challenging and relevant questions, provide feedback, and adjust difficulty based on responses. Keep the tone professional, constructive, and supportive."
-}
-
-# Keep the base system instruction separate so we don't accidentally append it multiple times
-BASE_SYSTEM_INSTRUCTION = config.get("system_instruction", "You are a professional mock interviewer.")
-
-# Audio buffer for continuous playback
-audio_buffer = np.array([], dtype=np.int16)
-buffer_lock = threading.Lock()
-
-def audio_output_callback(outdata, frames, time, status):
-    """Callback for playing audio output"""
-    global audio_buffer
-    if status:
-        print(f"Output status: {status}")
-    with buffer_lock:
-        # Fill buffer from queue
-        while not audio_output_queue.empty() and len(audio_buffer) < frames * 4:
-            try:
-                data = audio_output_queue.get_nowait()
-                audio_buffer = np.append(audio_buffer, data)
-            except:
-                break
-        # Play from buffer
-        if len(audio_buffer) >= frames:
-            outdata[:, 0] = audio_buffer[:frames]
-            audio_buffer = audio_buffer[frames:]
-        else:
-            # Not enough data, pad with silence
-            if len(audio_buffer) > 0:
-                outdata[:len(audio_buffer), 0] = audio_buffer
-                outdata[len(audio_buffer):, 0] = 0
-                audio_buffer = np.array([], dtype=np.int16)
-            else:
-                outdata.fill(0)
+    logger.warning("MONGODB_URI not set. Auth endpoints will return 503.")
 
 
-
-# Audio queues for threading with larger max size
-audio_input_queue = Queue(maxsize=100)
-audio_output_queue = Queue(maxsize=200)
-
-def audio_input_callback(indata, frames, time, status):
-    """Callback for capturing microphone input"""
-    if status:
-        print(f"Input status: {status}")
-    try:
-        audio_input_queue.put(indata.copy(), block=False)
-    except:
-        pass  # Queue full, skip this chunk
-
-
-async def send_audio(session, stop_event):
-    """Send audio from microphone to Gemini"""
-    print("🎤 Listening... (Press Ctrl+C to stop)")
-    
-    try:
-        while not stop_event.is_set():
-            try:
-                if not audio_input_queue.empty():
-                    audio_chunk = audio_input_queue.get(timeout=0.01)
-                    
-                    # Send audio to Gemini
-                    await session.send_realtime_input(
-                        audio=types.Blob(
-                            data=audio_chunk.tobytes(),
-                            mime_type="audio/pcm;rate=16000"
-                        )
-                    )
-                else:
-                    await asyncio.sleep(0.01)
-            except Exception as e:
-                if not stop_event.is_set():
-                    print(f"Error in send loop: {e}")
-                    await asyncio.sleep(0.1)
-    except asyncio.CancelledError:
-        print("Send task cancelled")
-    except Exception as e:
-        print(f"Fatal error sending audio: {e}")
-        import traceback
-        traceback.print_exc()
-
-async def receive_audio(session, stop_event):
-    """Receive audio responses from Gemini - TRULY CONTINUOUS"""
-    turn_count = 0
-    try:
-        while not stop_event.is_set():
-            async for response in session.receive():
-                if stop_event.is_set():
-                    break
-                # Check if there's audio data
-                if response.data is not None:
-                    print(f"🔊 Audio chunk ({len(response.data)} bytes)")
-                    audio_data = np.frombuffer(response.data, dtype=np.int16)
-                    audio_output_queue.put(audio_data)
-                # Handle server content
-                if response.server_content:
-                    if response.server_content.turn_complete:
-                        turn_count += 1
-                        print(f"✅ Turn {turn_count} complete - evaluating response...")
-                        user_response = getattr(response.server_content, 'input_transcription', None)
-                        feedback = "No feedback available."
-                        if user_response:
-                            feedback = evaluate_response(user_response)
-                            print(f"📝 Feedback: {feedback}")
-                        print("🔄 Preparing next question...")
-                        adjust_difficulty(turn_count, feedback)
-                        print(f"✅ Turn {turn_count} complete - ready for next input!")
-            if stop_event.is_set():
-                break
-            print("⚠️  Session receive loop ended, waiting...")
-            await asyncio.sleep(0.5)
-    except asyncio.CancelledError:
-        print("Receive task cancelled")
-    except Exception as e:
-        if not stop_event.is_set():
-            print(f"Fatal error receiving audio: {e}")
-            import traceback
-            traceback.print_exc()
-
-# Function to get the Job Description (JD) from the user
-def get_job_description():
-    print("📄 Please provide the Job Description (JD) for the interview:")
-    jd = input("Enter JD or path to JD file: ").strip()
-
-    # Check if JD is a file path
-    if os.path.isfile(jd):
-        try:
-            with open(jd, 'r') as file:
-                jd_content = file.read()
-                print("✅ JD loaded from file.")
-                return jd_content
-        except Exception as e:
-            print(f"❌ Error reading JD file: {e}")
-            return None
-    else:
-        # Assume JD is directly provided as text
-        print("✅ JD provided as text.")
-        return jd
-
-# Function to evaluate the user's response
-def evaluate_response(user_response):
-    """Evaluate the user's response and provide feedback."""
-    # Placeholder logic for evaluation - replace with actual logic or API call
-    if "good" in user_response.lower():
-        return "Great response! Keep it up."
-    elif "bad" in user_response.lower():
-        return "Consider elaborating more on your answer."
-    else:
-        return "Good effort! Try to be more specific."
-
-# Function to adjust difficulty dynamically
-def adjust_difficulty(turn_count, feedback):
-    """Adjust the difficulty of the next question based on feedback."""
-    # Placeholder logic for adjusting difficulty
-    if "Great" in feedback:
-        print("🔼 Increasing difficulty for the next question.")
-    elif "Consider" in feedback:
-        print("🔽 Lowering difficulty for the next question.")
-    else:
-        print("➡️ Keeping difficulty the same.")
-
-
-interview_lock = threading.Lock()
-interview_thread_running = False
-interview_stop_event = None
-
-def run_interview_session(job_description):
-    global interview_thread_running, interview_stop_event
-    # Create a session-specific config to avoid mutating the global config and accidentally
-    # appending the system instruction multiple times if sessions are started repeatedly.
-    session_config = dict(config)
-    session_config["system_instruction"] = (
-        f"{BASE_SYSTEM_INSTRUCTION} Use the following Job Description (JD) as context:\n{job_description}"
-    )
-
-    def interview_thread():
-        global interview_thread_running, interview_stop_event
-        interview_stop_event = asyncio.Event()
-        input_stream = None
-        output_stream = None
-        async def interview():
-            global interview_stop_event, interview_thread_running
-            nonlocal input_stream, output_stream
-            try:
-                async with client.aio.live.connect(model=model, config=session_config) as session:
-                    print("✅ Connected to Gemini Live API")
-                    input_stream = sd.InputStream(
-                        channels=1,
-                        samplerate=16000,
-                        dtype=np.int16,
-                        callback=audio_input_callback,
-                        blocksize=1024
-                    )
-                    output_stream = sd.OutputStream(
-                        channels=1,
-                        samplerate=24000,
-                        dtype=np.int16,
-                        callback=audio_output_callback,
-                        blocksize=2048
-                    )
-                    input_stream.start()
-                    output_stream.start()
-                    print("🎙️  Audio streams started\n")
-                    send_task = asyncio.create_task(send_audio(session, interview_stop_event))
-                    receive_task = asyncio.create_task(receive_audio(session, interview_stop_event))
-                    while not interview_stop_event.is_set():
-                        await asyncio.sleep(0.05)
-                    # Stop audio streams immediately when stop event is set
-                    if input_stream:
-                        input_stream.stop()
-                        input_stream.close()
-                    if output_stream:
-                        output_stream.stop()
-                        output_stream.close()
-                    print("Interview stopped by user.")
-                    await asyncio.sleep(0.2)
-                    # Optionally cancel tasks
-                    send_task.cancel()
-                    receive_task.cancel()
-                    await asyncio.gather(send_task, receive_task, return_exceptions=True)
-            except Exception as e:
-                print(f"\n❌ Error: {e}")
-                import traceback
-                traceback.print_exc()
-            finally:
-                interview_stop_event.set()
-        asyncio.run(interview())
-        # Ensure state is reset after thread ends
-        with interview_lock:
-            interview_thread_running = False
-            interview_stop_event = None
-
-    with interview_lock:
-        if interview_thread_running:
-            return None 
-        interview_thread_running = True
-
-    thread = threading.Thread(target=interview_thread, daemon=True)
-    thread.start()
-    return "Interview session started in background."
+# ---------------------------------------------------------------------------
+# NOTE: Real-time interview logic (SoundDevice/Gemini Live) has been removed
+# as we have migrated to Vapi AI (Frontend SDK).
+# ---------------------------------------------------------------------------
 
 def extract_pdf_text(pdf_path):
     """Extract text from a PDF file using pdfplumber."""
@@ -422,6 +744,7 @@ def get_gemini_resume_improvements(resume_text):
     }
 
     model1 = "gemini-2.5-flash"
+    logging.debug(f"Calling Gemini API with model: {model1}")
     response = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
         json=data,
@@ -436,14 +759,23 @@ def get_gemini_resume_improvements(resume_text):
 
     # If API returned an error structure or missing expected keys, return that for debugging
     if not response.ok:
+        logger.error(f"Gemini API error status: {response.status_code}, response: {response.text}")
         return {"error": f"Gemini API returned status {response.status_code}", "details": resp_json}
 
     # Try to extract text candidate safely
     try:
         candidates = resp_json.get("candidates")
-        if not candidates or not isinstance(candidates, list):
-            return {"error": "Gemini response missing 'candidates' field", "raw": resp_json}
-        text = candidates[0]["content"]["parts"][0]["text"]
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return {"error": "Gemini response missing or empty 'candidates' field", "raw": resp_json}
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return {"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return {"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}
+        text = parts[0].get("text")
+        if text is None:
+            return {"error": "Gemini response missing 'text' in first part", "raw": resp_json}
     except Exception as e:
         return {"error": f"Failed to extract text from Gemini response: {e}", "raw": resp_json}
 
@@ -489,22 +821,36 @@ def get_gemini_ats_score(resume_text, job_description):
     try:
         resp_json = response.json()
     except Exception:
-        print("Gemini API raw response:", response.text)
+        logger.error(f"Gemini API raw response: {response.text}")
         return {"error": "Invalid JSON response from Gemini API", "raw_response": response.text}
 
     if not response.ok:
-        print("Gemini API returned non-200:", response.status_code, resp_json)
+        logger.error(f"Gemini API returned non-200: {response.status_code} - {resp_json}")
         return {"error": f"Gemini API returned status {response.status_code}", "details": resp_json}
 
     # Defensive extraction
     try:
         candidates = resp_json.get("candidates")
-        if not candidates or not isinstance(candidates, list):
-            print("Gemini response missing 'candidates':", resp_json)
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            logger.warning(f"Gemini response missing 'candidates': {resp_json}")
             return {"error": "Gemini response missing 'candidates' field", "raw": resp_json}
-        text = candidates[0]["content"]["parts"][0]["text"]
+        
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            logger.warning(f"Gemini response missing 'content': {resp_json}")
+            return {"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}
+        
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            logger.warning(f"Gemini response missing 'parts': {resp_json}")
+            return {"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}
+        
+        text = parts[0].get("text")
+        if text is None:
+            logger.warning(f"Gemini response missing 'text': {resp_json}")
+            return {"error": "Gemini response missing 'text' in first part", "raw": resp_json}
     except Exception as e:
-        print("Error extracting candidate text:", e)
+        logger.error(f"Error extracting candidate text: {e}", exc_info=True)
         return {"error": f"Error extracting candidate text: {e}", "raw": resp_json}
 
     # Clean and parse JSON from text
@@ -516,56 +862,253 @@ def get_gemini_ats_score(resume_text, job_description):
         import json
         return json.loads(text)
     except Exception as e:
-        print("Error parsing Gemini API response:", str(e))
+        logger.error(f"Error parsing Gemini API response: {e}", exc_info=True)
         return {"error": f"Error parsing Gemini API response: {e}", "extracted_text": text}
 
-@app.route('/stop-interview', methods=['POST'])
-def stop_interview_route():
-    global interview_stop_event, interview_thread_running
-    global audio_buffer
-    with interview_lock:
-        if interview_thread_running and interview_stop_event:
-            interview_stop_event.set()
-            # Clear queues and reset state
-            while not audio_input_queue.empty():
-                try:
-                    audio_input_queue.get_nowait()
-                except:
-                    break
-            while not audio_output_queue.empty():
-                try:
-                    audio_output_queue.get_nowait()
-                except:
-                    break
-            # Reset audio buffer
-            audio_buffer = np.array([], dtype=np.int16)
-            # Optionally reset other globals here if needed
-            return jsonify({"result": "Interview stopped and all state reset."})
-        else:
-            return jsonify({"error": "No interview session running."}), 409
 
-@app.route('/interview', methods=['POST'])
-def interview_route():
+
+
+# Vapi Private Key
+VAPI_PRIVATE_KEY = os.getenv("VAPI_PRIVATE_KEY")
+
+@app.route('/api/vapi/assistant', methods=['POST'])
+@require_auth  # Add authentication
+def create_vapi_assistant():
+    if not VAPI_PRIVATE_KEY:
+        return jsonify({"error": "VAPI_PRIVATE_KEY not configured on server"}), 500
+
     data = request.get_json()
     job_description = data.get('jd')
     if not job_description:
-        return jsonify({"error": "No JD provided."}), 400
-    result = run_interview_session(job_description)
-    if result is None:
-        return jsonify({"error": "Interview session already running. Please wait for it to finish."}), 409
-    return jsonify({"result": result})
+        return jsonify({"error": "No JD provided"}), 400
+
+    # Truncate JD to avoid hitting token limits
+    jd_text = job_description[:1500] + "..." if len(job_description) > 1500 else job_description
+    
+    system_prompt = (
+        "You are an expert AI Interviewer acting as a Hiring Manager. "
+        "Your goal is to conduct a professional mock interview based on this Job Description:\n\n"
+        f"{jd_text}\n\n"
+        "Instructions:\n"
+        "1. Welcome the candidate and mention the role.\n"
+        "2. Ask ONE question at a time. Wait for response.\n"
+        "3. Keep questions relevant to the JD.\n"
+        "4. Adjust difficulty based on candidate's answers.\n"
+        "5. Be encouraging but professional.\n"
+        "6. Close politely when done."
+    )
+
+    try:
+        payload = {
+            "name": "AI Interviewer",
+            "firstMessage": "Hello! I'm your AI interviewer. Let's begin the mock interview. Can you start by telling me about yourself?",
+            "model": {
+                "provider": "openai",
+                "model": "gpt-3.5-turbo",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    }
+                ]
+            },
+            "voice": {
+                "provider": "azure",
+                "voiceId": "en-US-JennyNeural"
+            }
+        }
+        
+        logger.debug("Vapi API Request Payload:")
+        logger.debug(json.dumps(payload, indent=2))
+        
+        response = requests.post(
+            "https://api.vapi.ai/assistant",
+            headers={
+                "Authorization": f"Bearer {VAPI_PRIVATE_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=10
+        )
+        if response.status_code != 201:
+            logger.error(f"Vapi API error: status {response.status_code}, response: {response.text}")
+            return jsonify({"error": "Failed to create Vapi assistant", "details": response.json()}), response.status_code
+        
+        assistant_id = response.json().get("id")
+        
+        # Log the activity
+        if db is not None:
+            log_mock_interview(
+                db, request.user_email, "technical", job_description[:500],
+                duration_minutes=0, vapi_assistant_id=assistant_id
+            )
+            log_activity(db, request.user_email, "mock_interview", "Started Mock Interview Session")
+        
+        # Return only the ID to the frontend to keep the prompt hidden and strict
+        return jsonify({"id": assistant_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/vapi/generate-feedback', methods=['POST'])
+@require_auth
+def generate_interview_feedback():
+    """Generate AI-powered feedback for completed mock interview"""
+    try:
+        data = request.get_json()
+        job_description = data.get('jobDescription', '')
+        transcript = data.get('transcript', '')
+        duration_minutes = data.get('duration', 0)
+        
+        if not transcript:
+            return jsonify({"error": "No interview transcript provided"}), 400
+        
+        # Create comprehensive feedback prompt for Gemini
+        prompt = f"""
+You are an expert interview coach analyzing a mock interview performance.
+
+Job Description:
+{job_description}
+
+Interview Transcript:
+{transcript}
+
+Interview Duration: {duration_minutes} minutes
+
+Analyze this interview and provide detailed feedback in the following JSON format:
+{{
+  "overall_score": <number 1-10>,
+  "communication_score": <number 1-10>,
+  "technical_score": <number 1-10>,
+  "confidence_score": <number 1-10>,
+  "strengths": ["strength 1", "strength 2", "strength 3"],
+  "weaknesses": ["weakness 1", "weakness 2", "weakness 3"],
+  "improvement_areas": ["area 1", "area 2", "area 3"],
+  "summary": "A comprehensive 2-3 sentence summary of the interview performance",
+  "detailed_feedback": "Detailed paragraph analyzing the candidate's responses, communication style, and technical knowledge",
+  "recommended_actions": ["action 1", "action 2", "action 3"]
+}}
+
+Evaluate based on:
+1. Communication clarity and professionalism
+2. Technical knowledge and accuracy of answers
+3. Confidence and composure
+4. Relevance of answers to questions asked
+5. Use of examples and specific details
+
+Provide constructive, actionable feedback. Be encouraging but honest.
+"""
+        
+        # Call Gemini API
+        model_name = "gemini-2.5-flash"
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}",
+            json={
+                "contents": [{"parts": [{"text": prompt + "\n\nIMPORTANT: Return PURE JSON only. Do not use markdown code blocks (```json). Do not add any conversational text."}]}],
+                "generationConfig": {
+                    "temperature": 0.5,
+                    "maxOutputTokens": 2048,
+                    "responseMimeType": "application/json"
+                }
+            },
+            timeout=30
+        )
+        
+        if not response.ok:
+            logger.error(f"Gemini API error in feedback: status {response.status_code}, response: {response.text}")
+            return jsonify({"error": "Failed to generate feedback"}), 500
+        
+        resp_json = response.json()
+        candidates = resp_json.get("candidates")
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'candidates' field"}), 500
+        
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return jsonify({"error": "Gemini response missing or invalid 'content' in first candidate"}), 500
+        
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'parts' in content"}), 500
+        
+        feedback_text = parts[0].get("text")
+        if feedback_text is None:
+            return jsonify({"error": "Gemini response missing 'text' in first part"}), 500
+        
+        # Log the raw text for debugging
+        logger.debug(f"Raw Gemini feedback text: {feedback_text}")
+
+        # Robust JSON extraction
+        try:
+            # First try direct parse
+            feedback_data = json.loads(feedback_text)
+        except json.JSONDecodeError:
+            # Try to find JSON block using regex
+            import re
+            json_match = re.search(r'\{.*\}', feedback_text, re.DOTALL)
+            if json_match:
+                try:
+                    feedback_data = json.loads(json_match.group(0))
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse extracted JSON block: {e}")
+                    raise e
+            else:
+                logger.error("No JSON object found in feedback text")
+                raise json.JSONDecodeError("No JSON object found", feedback_text, 0)
+        
+        # Save feedback to database
+        if db is not None:
+            user = db['users'].find_one({"email": request.user_email})
+            if user:
+                feedback_doc = {
+                    "user_id": user['_id'],
+                    "email": request.user_email,
+                    "job_description": job_description[:500],
+                    "transcript": transcript,
+                    "duration_minutes": duration_minutes,
+                    "feedback": feedback_data,
+                    "timestamp": datetime.now(timezone.utc)
+                }
+                db['interview_feedback'].insert_one(feedback_doc)
+                
+                # Log activity
+                log_activity(db, request.user_email, "mock_interview", 
+                           f"Interview Feedback - Score: {feedback_data.get('overall_score', 0)}/10")
+        
+        return jsonify(feedback_data)
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parsing error: {e}")
+        return jsonify({"error": "Failed to parse AI response", "details": str(e)}), 500
+    except Exception as e:
+        logger.error(f"Error generating feedback: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/improve-resume', methods=['POST'])
+@require_auth  # Add authentication
 def improve_resume():
     if 'file' not in request.files:
         return jsonify({"error": "Missing resume file"}), 400
     file = request.files['file']
+    filename = file.filename
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         file.save(tmp.name)
         tmp_path = tmp.name
     try:
         resume_text = extract_pdf_text(tmp_path)
         result = get_gemini_resume_improvements(resume_text)
+        
+        # Log the activity
+        if db is not None and not result.get("error"):
+            log_resume_activity(
+                db, request.user_email, "improvement", 
+                resume_filename=filename,
+                suggestions=result.get("suggestions"),
+                resume_data=result.get("improved_resume") or result.get("improved_text") or result.get("resume_text")
+            )
+            log_activity(db, request.user_email, "resume_builder", "Resume Improvement Request")
+            
     except Exception as e:
         result = {"error": str(e)}
     finally:
@@ -574,11 +1117,105 @@ def improve_resume():
         return jsonify(result), 500
     return jsonify(result)
 
+@app.route('/generate-resume', methods=['POST'])
+@require_auth
+def generate_resume():
+    """Generate an ATS-optimized resume using Gemini AI"""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing request data"}), 400
+    
+    job_description = data.get('jobDescription')
+    template = data.get('template', 'modern')
+    user_data = data.get('userData', {})
+    
+    if not job_description:
+        return jsonify({"error": "Job description is required"}), 400
+    
+    # Build the prompt for Gemini
+    prompt = f"""You are an expert ATS (Applicant Tracking System) resume writer. Your task is to create a highly optimized resume that will pass ATS screening and appeal to hiring managers.
+
+JOB DESCRIPTION:
+{job_description}
+
+USER DATA:
+{json.dumps(user_data, indent=2)}
+
+INSTRUCTIONS:
+1. Analyze the job description and identify key requirements, skills, and keywords
+2. Match the user's experience and skills to the job requirements
+3. Use action verbs and quantifiable achievements
+4. Incorporate relevant keywords from the job description naturally
+5. Format the resume to be ATS-friendly (simple formatting, no tables, standard section headers)
+6. Fill in the template with optimized content
+7. Ensure all content is truthful to the user's data but optimized for impact
+8. Keep the resume to 1 page worth of content
+
+Generate the complete, ATS-optimized resume. Output ONLY the resume text, no explanations or metadata."""
+
+    try:
+        model1 = "gemini-2.5-flash"
+        logging.debug(f"Calling Gemini API with model: {model1} for resume generation")
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model1}:generateContent?key={API_KEY}",
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "maxOutputTokens": 2048,
+                }
+            },
+            timeout=30
+        )
+        
+        if not response.ok:
+            logger.error(f"Gemini API error in resume generation: status {response.status_code}, response: {response.text}")
+            try:
+                resp_json = response.json()
+                return jsonify({"error": f"Gemini API returned status {response.status_code}", "details": resp_json}), 500
+            except:
+                return jsonify({"error": "Failed to generate resume", "raw_response": response.text}), 500
+        
+        resp_json = response.json()
+        candidates = resp_json.get("candidates")
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'candidates' field", "raw": resp_json}), 500
+        
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return jsonify({"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}), 500
+        
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}), 500
+        
+        resume_text = parts[0].get("text")
+        if resume_text is None:
+            return jsonify({"error": "Gemini response missing 'text' in first part", "raw": resp_json}), 500
+        
+        # Log the activity
+        if db is not None:
+            log_resume_activity(
+                db, request.user_email, "generation",
+                job_description=job_description[:500],
+                suggestions=f"Generated resume using {template} template",
+                resume_data=resume_text
+            )
+            log_activity(db, request.user_email, "resume_builder", "Resume Generation Request")
+        
+        return jsonify({"resume": resume_text})
+        
+    except Exception as e:
+        logger.error(f"Error generating resume: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/evaluate-resume', methods=['POST'])
+@require_auth  # Add authentication
 def evaluate_resume():
     if 'file' not in request.files:
         return jsonify({"error": "Missing resume file"}), 400
     file = request.files['file']
+    filename = file.filename
     jd_text = None
     # Accept job_description as either text or file
     if 'job_description' in request.form:
@@ -607,6 +1244,20 @@ def evaluate_resume():
     try:
         resume_text = extract_pdf_text(tmp_path)
         result = get_gemini_ats_score(resume_text, jd_text)
+        
+        # Log the activity
+        if db is not None and not result.get("error"):
+            log_resume_activity(
+                db, request.user_email, "evaluation",
+                resume_filename=filename,
+                job_description=jd_text[:500],  # Store first 500 chars
+                ats_score=result.get("match_score"),
+                missing_keywords=result.get("missing_keywords"),
+                suggestions=result.get("summary")
+            )
+            log_activity(db, request.user_email, "resume_evaluator", 
+                        f"ATS Evaluation - Score: {result.get('match_score', 0)}")
+            
     except Exception as e:
         result = {"error": str(e)}
     finally:
@@ -616,6 +1267,7 @@ def evaluate_resume():
     return jsonify(result)
 
 @app.route('/generate-questions', methods=['POST'])
+@require_auth  # Add authentication
 def generate_questions():
     data = request.get_json()
     company = data.get('company_name')
@@ -663,11 +1315,20 @@ def generate_questions():
         json=data,
         timeout=60
     )
-
     try:
         resp_json = response.json()
         candidates = resp_json.get("candidates", [])
-        text = candidates[0]["content"]["parts"][0]["text"]
+        if not candidates or not isinstance(candidates, list) or len(candidates) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'candidates' field", "raw": resp_json}), 500
+        content = candidates[0].get("content")
+        if not content or not isinstance(content, dict):
+            return jsonify({"error": "Gemini response missing or invalid 'content' in first candidate", "raw": resp_json}), 500
+        parts = content.get("parts")
+        if not parts or not isinstance(parts, list) or len(parts) == 0:
+            return jsonify({"error": "Gemini response missing or empty 'parts' in content", "raw": resp_json}), 500
+        text = parts[0].get("text")
+        if text is None:
+            return jsonify({"error": "Gemini response missing 'text' in first part", "raw": resp_json}), 500
 
         # Clean Gemini's markdown fences and control characters
         import re
@@ -679,21 +1340,22 @@ def generate_questions():
         # Remove any control characters
         text = re.sub(r'[\x00-\x1F]+', '', text)
         # Log raw text for debugging
-        print('Gemini raw response:', repr(text))
+        logger.debug(f"Gemini raw response: {repr(text)}")
         import json
         questions_list = json.loads(text)
-    except Exception as e:
-        return jsonify({"error": f"Failed to parse Gemini response: {e}", "raw": text if 'text' in locals() else response.text}), 500
 
-    return jsonify({
-        "company": company,
-        "role": role,
-        "domain": domain,
-        "experience_level": experience,
-        "question_type": qtype,
-        "difficulty": difficulty,
-        "questions": questions_list
-    })
+        # Log the activity to database
+        if db is not None:
+            log_question_bank_activity(
+                db, request.user_email, company, role, domain, 
+                experience, qtype, difficulty, num_q, questions_list
+            )
+            log_activity(db, request.user_email, "question_bank", 
+                        f"Generated {num_q} questions for {company}")
+        return jsonify({"questions": questions_list})
+    except Exception as e:
+        logger.error(f"Failed to parse Gemini response: {e}", exc_info=True)
+        return jsonify({"error": f"Failed to parse Gemini response: {e}"}), 500
 
 # ---------------------------
 # Auth helpers and endpoints
@@ -757,11 +1419,25 @@ def auth_login():
     user = users_col.find_one({"email": email})
     if not user or not check_password_hash(user.get('passwordHash', ''), password):
         return jsonify({"error": "Invalid email or password"}), 401
+    
+    # Update login info
+    users_col.update_one(
+        {"email": email},
+        {
+            "$set": {"last_login": datetime.now(timezone.utc)},
+            "$inc": {"total_login_count": 1}
+        }
+    )
+    
+    # Log login activity
+    log_activity(db, email, "login", "Email/Password Login")
+    
     token = issue_jwt(user.get('_id'), email)
     profile = {
         "firstName": user.get('firstName'),
         "lastName": user.get('lastName'),
         "email": user.get('email'),
+        "picture": user.get('picture'),
     }
     return jsonify({"token": token, "user": profile})
 
@@ -773,18 +1449,45 @@ def auth_me():
     if not auth_header.startswith('Bearer '):
         return jsonify({"error": "Missing token"}), 401
     token = auth_header.split(' ', 1)[1]
+    
+    payload, error = verify_token(token)
+    if error:
+        return jsonify({"error": error}), 401
+    
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         email = payload.get('email')
         user = users_col.find_one({"email": email}, {"passwordHash": 0})
         if not user:
             return jsonify({"error": "User not found"}), 404
-        user["_id"] = str(user["_id"]) if "_id" in user else None
-        return jsonify({"user": user})
-    except jwt.ExpiredSignatureError:
-        return jsonify({"error": "Token expired"}), 401
+        
+        return jsonify({"user": serialize_doc(user)})
     except Exception as e:
-        return jsonify({"error": f"Invalid token: {e}"}), 401
+        return jsonify({"error": f"Server error: {e}"}), 500
+
+@app.route('/auth/logout', methods=['POST'])
+def auth_logout():
+    """
+    Logout endpoint - revokes the token and logs the activity
+    """
+    if not require_db():
+        return jsonify({"error": "Auth not configured on server"}), 503
+    
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({"message": "No token provided"}), 200
+    
+    token = auth_header.split(' ', 1)[1]
+    payload, error = verify_token(token)
+    
+    if not error and payload:
+        # Log logout activity
+        email = payload.get('email')
+        log_activity(db, email, "logout", "User Logout")
+    
+    # Revoke the token
+    revoke_token(token)
+    
+    return jsonify({"message": "Logged out successfully"}), 200
 
 # Initialize serializer for generating and verifying tokens
 serializer = URLSafeTimedSerializer(JWT_SECRET)
@@ -805,10 +1508,10 @@ def forgot_password():
 
     # Generate a password reset token
     token = serializer.dumps(email, salt='password-reset-salt')
-    reset_url = f"http://localhost:3000/reset-password?token={token}"
+    reset_url = f"{FRONTEND_URL}/reset-password?token={token}"
 
     # Simulate sending email (replace with actual email service)
-    print(f"Password reset link: {reset_url}")
+    logger.debug(f"Password reset link: {reset_url}")
 
     return jsonify({"message": "Password reset link sent to your email"})
 
@@ -839,6 +1542,529 @@ def reset_password():
         return jsonify({"error": "Failed to reset password"}), 500
 
     return jsonify({"message": "Password reset successful"})
+
+
+# ==================== USER DASHBOARD & ANALYTICS ====================
+
+@app.route('/api/user/dashboard', methods=['GET'])
+@require_auth
+def user_dashboard():
+    """
+    Get comprehensive user statistics for the progress analytics dashboard
+    """
+    if db is None:
+        return jsonify({"error": "Database not configured"}), 503
+    
+    try:
+        stats = get_user_stats(db, request.user_email)
+        if not stats:
+            return jsonify({"error": "Failed to retrieve user statistics"}), 500
+        
+        return jsonify(serialize_doc(stats))
+    except Exception as e:
+        logger.error(f"Error in dashboard: {e}", exc_info=True)
+        return jsonify({"error": f"Server error: {e}"}), 500
+
+
+@app.route('/api/user/activity-log', methods=['GET'])
+@require_auth
+def get_activity_log():
+    """
+    Get user's recent activity log with optional filtering
+    """
+    if db is None:
+        return jsonify({"error": "Database not configured"}), 503
+    
+    try:
+        limit = int(request.args.get('limit', 50))
+        activity_type = request.args.get('type')  # Optional filter
+        
+        user = users_col.find_one({"email": request.user_email})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        query = {"user_id": user['_id']}
+        if activity_type:
+            query["activity_type"] = activity_type
+        
+        activities = list(db['user_activities'].find(query).sort("timestamp", -1).limit(limit))
+        
+        return jsonify({"activities": serialize_doc(activities)})
+    except Exception as e:
+        return jsonify({"error": f"Server error: {e}"}), 500
+
+
+@app.route('/api/user/mock-interview-score', methods=['POST'])
+@require_auth
+def save_mock_interview_score():
+    """
+    Save mock interview scores and feedback
+    """
+    if db is None:
+        return jsonify({"error": "Database not configured"}), 503
+    
+    try:
+        data = request.get_json()
+        
+        log_mock_interview(
+            db, request.user_email,
+            interview_type=data.get('interview_type', 'technical'),
+            job_description=data.get('job_description', ''),
+            duration_minutes=data.get('duration_minutes', 0),
+            vapi_assistant_id=data.get('assistant_id'),
+            vapi_call_id=data.get('call_id'),
+            overall_rating=data.get('overall_rating'),
+            communication_score=data.get('communication_score'),
+            technical_score=data.get('technical_score'),
+            confidence_score=data.get('confidence_score'),
+            feedback=data.get('feedback'),
+            transcript=data.get('transcript')
+        )
+        
+        return jsonify({"message": "Interview score saved successfully"})
+    except Exception as e:
+        return jsonify({"error": f"Server error: {e}"}), 500
+
+
+
+SYSTEM_PROMPT = "You are an AI Interview Coach. Help the user prepare for interviews, answer questions, and provide feedback."
+
+def get_gemini_chat_response(message, history=[]):
+    """
+    Get response from Gemini for chat with history and config
+    """
+    try:
+        model_name = "gemini-2.0-flash" 
+        # Strip newline/spaces just in case
+        api_key = API_KEY.strip() if API_KEY else ""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        
+        # Build contents from history + current message
+        contents = []
+        
+
+        formatted_history = []
+        
+        # Add system prompt
+        formatted_history.append({
+            "role": "user",
+            "parts": [{"text": SYSTEM_PROMPT}]
+        })
+        formatted_history.append({
+            "role": "model",
+            "parts": [{"text": "Understood. I am read to help as an AI Interview Coach."}]
+        })
+
+        # Add conversation history
+        for msg in history:
+            role = "user" if msg.get("role") == "user" else "model"
+            content = msg.get("content", "")
+            formatted_history.append({
+                "role": role,
+                "parts": [{"text": content}]
+            })
+            
+        # Add current message
+        formatted_history.append({
+            "role": "user",
+            "parts": [{"text": message}]
+        })
+
+        payload = {
+            "contents": formatted_history,
+            "generationConfig": {
+                "temperature": 0.7,
+                "topK": 40,
+                "topP": 0.95,
+                "maxOutputTokens": 2048,
+            },
+            "safetySettings": [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                }
+            ]
+        }
+        
+        response = requests.post(url, json=payload, timeout=30)
+        
+        if response.status_code != 200:
+            logging.error(f"Gemini API error: {response.text}")
+            return "I'm having trouble connecting to my brain right now. Please try again later."
+            
+        data = response.json()
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError):
+            logging.error(f"Unexpected Gemini response format: {data}")
+            return "I received an unexpected response. Please try again."
+            
+    except Exception as e:
+        logging.error(f"Error calling Gemini: {e}")
+        return "Sorry, I encountered an error processing your request."
+
+@app.route('/api/user/chat-message', methods=['POST'])
+@require_auth
+def save_chat_message():
+    """
+    Save chat messages for session tracking
+    """
+    # Get database handle from app (preferred) or global fallback
+    current_db = getattr(app, 'mongo_db', None)
+    if current_db is None:
+        current_db = globals().get('db')
+
+    if current_db is None:
+        return jsonify({"error": "Database not configured"}), 503
+
+    try:
+        data = request.get_json() or {}
+        session_id = data.get('session_id', 'default')
+        message = data.get('message', '')
+        role = data.get('role', 'user')
+
+        if not message:
+            return jsonify({"error": "Message cannot be empty"}), 400
+
+        # 1. Save USER message
+        result = auth_utils.update_chat_session(current_db, request.user_email, session_id, message, role)
+        if not result:
+            return jsonify({"error": "Failed to update chat session"}), 500
+
+        response_data = {"message": "Chat message saved"}
+        
+        # If a new session was created, result is the _id
+        if isinstance(result, str):
+            response_data["session_id"] = result
+            # Update session_id for the subsequent AI response
+            session_id = result
+            
+        if role == 'user':
+            # Retrieve history for context
+            history = []
+            try:
+                # Resolve User ObjectId from email (reliable for both Google Auth and standard auth)
+                # request.user_id might be a Google ID string, not a Mongo ObjectId
+                user = current_db['users'].find_one({'email': request.user_email})
+                if user:
+                    user_id = user['_id']
+                    
+                    # Query db for this session using the resolved user_id
+                    # Handle both session_id string (timestamp) and ObjectId (backend generated)
+                    query = {'user_id': user_id}
+                    if auth_utils.ObjectId.is_valid(session_id):
+                        query['$or'] = [{'session_id': session_id}, {'_id': auth_utils.ObjectId(session_id)}]
+                    else:
+                        query['session_id'] = session_id
+                        
+                    chat_session = current_db['chat_sessions'].find_one(query)
+                    
+                    if chat_session and 'messages' in chat_session:
+                        # Exclude the very last message which is the one we just added
+                        all_msgs = chat_session.get('messages', [])
+                        if len(all_msgs) > 1:
+                            history = all_msgs[:-1]
+            except Exception as hist_e:
+                logging.error(f"Error fetching history: {hist_e}")
+                # Continue without history if fail
+            
+            # Get AI response
+            ai_response_text = get_gemini_chat_response(message, history=history)
+            
+            # Save AI message
+            ai_result = auth_utils.update_chat_session(
+                current_db, 
+                request.user_email, 
+                session_id, 
+                ai_response_text, 
+                role='assistant' # db stores as 'assistant', Gemini needs 'model' - mapping handled in get_gemini
+            )
+            
+            if ai_result:
+                response_data["assistant_message"] = ai_response_text
+            else:
+                logging.error("Failed to save AI response to database")
+
+        return jsonify(response_data)
+    except Exception as e:
+        import traceback
+        logging.error(f"Error in save_chat_message: {e}")
+        traceback.print_exc()
+        return jsonify({"error": f"Server error: {e}"}), 500
+
+# Dashboard subscription/activity endpoint
+@app.route('/api/dashboard-info', methods=['GET'])
+@require_auth
+def dashboard_info():
+    email = getattr(request, 'user_email', None)
+    db = getattr(app, 'mongo_db', None)
+    if db is None:
+        db = globals().get('db', None)
+    if db is None or email is None:
+        return jsonify({'error': 'Database or user not found'}), 500
+
+    users_col = getattr(app, 'users_col', None)
+    if users_col is None:
+        users_col = db['users']
+    subs_col = db['subscription_info']
+    activities_col = db['user_activities']
+
+    user = users_col.find_one({'email': email}, {
+        'subscription_tier': 1,
+        'subscription_status': 1,
+        'subscription_start': 1,
+        'subscription_end': 1,
+        'name': 1,
+        'email': 1,
+        'picture': 1,
+        'firstName': 1,
+        'total_login_count': 1,
+        'last_login': 1
+    })
+    latest_sub = subs_col.find({'email': email}).sort('timestamp', -1).limit(1)
+    sub_details = next(latest_sub, None)
+    recent_activities = list(activities_col.find({'email': email}).sort('timestamp', -1).limit(10))
+    all_activities = list(activities_col.find({'email': email}))
+
+    # Serialize all ObjectId fields to strings
+    user = serialize_doc(user) if user else None
+    sub_details = serialize_doc(sub_details) if sub_details else None
+    recent_activities = serialize_doc(recent_activities)
+    
+    # Normalize subscription fields for frontend
+    if sub_details and isinstance(sub_details, dict):
+        sub_details['tier'] = sub_details.get('subscription_tier', sub_details.get('tier', 'free'))
+        sub_details['status'] = sub_details.get('payment_status', sub_details.get('subscription_status', 'active'))
+        sub_details['start_date'] = sub_details.get('start_date', sub_details.get('subscription_start'))
+        sub_details['end_date'] = sub_details.get('end_date', sub_details.get('subscription_end'))
+
+    # Calculate chat sessions and messages (from chat_sessions collection)
+    chat_sessions_col = db['chat_sessions']
+    user_obj = users_col.find_one({'email': email})
+    chat_sessions = list(chat_sessions_col.find({'user_id': user_obj['_id']})) if user_obj else []
+    chat_sessions = serialize_doc(chat_sessions)
+    
+    total_chat_sessions = len(chat_sessions)
+    total_chat_messages = sum(s.get('message_count', 0) for s in chat_sessions)
+    
+    # V2V evaluations
+    v2v_evals = list(db['v2v_evaluations'].find({'user_id': user_obj['_id']})) if user_obj else []
+    v2v_evals = serialize_doc(v2v_evals)
+
+    # Calculate job searches and details
+    job_searches = [a for a in all_activities if a.get('activity_type') == 'job_finder']
+    total_job_searches = len(job_searches)
+    # Show recent 5 unique job search queries (by query string, most recent first)
+    seen_queries = set()
+    recent_jobs = []
+    for job in sorted(job_searches, key=lambda x: x.get('timestamp', ''), reverse=True):
+        query = job.get('query', '').strip()
+        if query and query.lower() not in seen_queries:
+            recent_jobs.append({
+                'query': query,
+                'timestamp': job.get('timestamp')
+            })
+            seen_queries.add(query.lower())
+        if len(recent_jobs) >= 5:
+            break
+    job_opened_details = recent_jobs
+    for a in job_searches:
+        job_info = {
+            'timestamp': a.get('timestamp'),
+            'query': a.get('activity_name'),
+            'details': a.get('job_details', {})
+        }
+        job_opened_details.append(job_info)
+
+    # Calculate login info
+    total_logins = user.get('total_login_count', 0) if user else 0
+    last_login = user.get('last_login') if user else None
+
+    # Calculate question bank sessions and details
+    qb_col = db['question_bank_activities']
+    qb_sessions = list(qb_col.find({'user_id': user_obj['_id']}).sort('timestamp', -1).limit(5)) if user_obj else []
+    total_qb_sessions = qb_col.count_documents({'user_id': user_obj['_id']}) if user_obj else 0
+    qb_recent_sessions = []
+    for a in qb_sessions:
+        qb_recent_sessions.append({
+            'timestamp': a.get('timestamp'),
+            'company': a.get('company', ''),
+            'role': a.get('role', ''),
+            'domain': a.get('domain', ''),
+            'experience_level': a.get('experience_level', ''),
+            'difficulty': a.get('difficulty', ''),
+            'question_type': a.get('question_type', ''),
+            'num_questions': a.get('num_questions', 0),
+        })
+
+    # Calculate mock interviews and details
+    mock_interviews = [a for a in all_activities if a.get('activity_type') == 'mock_interview']
+    total_mock_interviews = len(mock_interviews)
+    mock_recent_interviews = []
+    for a in mock_interviews[-5:]:
+        mock_recent_interviews.append({
+            'timestamp': a.get('timestamp'),
+            'interview_type': a.get('interview_type'),
+            'overall_rating': a.get('overall_rating'),
+            'communication_score': a.get('communication_score'),
+            'technical_score': a.get('technical_score'),
+            'confidence_score': a.get('confidence_score'),
+            'feedback': a.get('feedback'),
+        })
+
+    # Calculate resume activities and details
+    resume_activities = [a for a in all_activities if a.get('activity_type') in ['resume_evaluator', 'resume_builder', 'improvement', 'generation', 'evaluation']]
+    total_resume_activities = len(resume_activities)
+    resume_recent_activities = []
+    for a in resume_activities:
+        resume_recent_activities.append({
+            'timestamp': a.get('timestamp'),
+            'activity_type': a.get('activity_type'),
+            'ats_score': a.get('ats_score'),
+            'missing_keywords': a.get('missing_keywords'),
+            'suggestions': a.get('suggestions'),
+            'resume_filename': a.get('resume_filename'),
+            'resume_data': a.get('resume_data'),
+            'job_description': a.get('job_description'),
+        })
+
+    # Timeline (most recent 20 activities)
+    activity_timeline = list(activities_col.find({'email': email}).sort('timestamp', -1).limit(20))
+    for activity in activity_timeline:
+        if '_id' in activity:
+            activity['_id'] = str(activity['_id'])
+        if 'user_id' in activity:
+            activity['user_id'] = str(activity['user_id'])
+
+    # Add all login and logout activities for the frontend
+    login_activities = [a for a in all_activities if a.get('activity_type') == 'login']
+    logout_activities = [a for a in all_activities if a.get('activity_type') == 'logout']
+    # Serialize ObjectId fields for login/logout activities
+    login_activities = serialize_doc(login_activities)
+    logout_activities = serialize_doc(logout_activities)
+
+    response = {
+        'user': user,
+        'subscription': sub_details,
+        'activities': recent_activities,
+        'login_activities': login_activities,
+        'logout_activities': logout_activities,
+        'chat_sessions': {
+            'total_sessions': total_chat_sessions,
+            'total_messages': total_chat_messages,
+            'sessions': chat_sessions
+        },
+        'job_searches': {
+            'total_searches': total_job_searches,
+            'recent_jobs': job_opened_details
+        },
+        'user_info': {
+            'total_logins': total_logins,
+            'last_login': last_login
+        },
+        'question_bank': {
+            'total_sessions': total_qb_sessions,
+            'recent_sessions': qb_recent_sessions
+        },
+        'mock_interviews': {
+            'total_interviews': total_mock_interviews,
+            'recent_interviews': mock_recent_interviews
+        },
+        'resume_activities': {
+            'total_activities': total_resume_activities,
+            'recent_activities': resume_recent_activities
+        },
+        'timeline': activity_timeline
+    }
+
+    return jsonify(response)
+
+# ==================== USER CHAT & PROFILE IMAGE ====================
+from werkzeug.utils import secure_filename
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/api/user/upload-profile-pic', methods=['POST'])
+@require_auth
+def upload_profile_pic():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        ext = filename.rsplit('.', 1)[1].lower()
+        user_id = str(request.user_id)
+        new_filename = f"{user_id}.{ext}"
+        file_path = os.path.join(UPLOAD_FOLDER, new_filename)
+        file.save(file_path)
+        # Update user doc
+        db = app.config.get('db')
+        users_col = app.config.get('users_col')
+        if db is None or users_col is None:
+            from models import get_collections
+            mongo_uri = os.environ.get("MONGODB_URI")
+            client = MongoClient(mongo_uri)
+            db_name = os.environ.get("MONGODB_DBNAME") or "prepwise"
+            db = client[db_name]
+            users_col = db['users']
+            app.config['db'] = db
+            app.config['users_col'] = users_col
+        url = f"/static/uploads/{new_filename}"
+        # Try to find user by google_id first (Google users), then by _id (email/password users)
+        user = users_col.find_one({'google_id': request.user_id})
+        if user:
+            users_col.update_one({'google_id': request.user_id}, {'$set': {'picture': url}})
+        else:
+            # Email/password user - user_id is MongoDB _id
+            from bson import ObjectId
+            users_col.update_one({'_id': ObjectId(request.user_id)}, {'$set': {'picture': url}})
+        return jsonify({'picture': url})
+    return jsonify({'error': 'Invalid file type'}), 400
+
+@app.route('/api/user/delete-profile-pic', methods=['DELETE'])
+@require_auth
+def delete_profile_pic():
+    db = app.config.get('db')
+    users_col = app.config.get('users_col')
+    if db is None or users_col is None:
+        from models import get_collections
+        mongo_uri = os.environ.get("MONGODB_URI")
+        client = MongoClient(mongo_uri)
+        db_name = os.environ.get("MONGODB_DBNAME") or "prepwise"
+        db = client[db_name]
+        users_col = db['users']
+        app.config['db'] = db
+        app.config['users_col'] = users_col
+    # Try to find user by google_id first (Google users), then by _id (email/password users)
+    user = users_col.find_one({'google_id': request.user_id})
+    if not user:
+        # Email/password user - user_id is MongoDB _id
+        from bson import ObjectId
+        user = users_col.find_one({'_id': ObjectId(request.user_id)})
+    
+    if user and user.get('picture') and user['picture'].startswith('/static/uploads/'):
+        file_path = os.path.join(os.path.dirname(__file__), user['picture'].lstrip('/'))
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    
+    # Update the user document
+    if users_col.find_one({'google_id': request.user_id}):
+        users_col.update_one({'google_id': request.user_id}, {'$set': {'picture': ''}})
+    else:
+        from bson import ObjectId
+        users_col.update_one({'_id': ObjectId(request.user_id)}, {'$set': {'picture': ''}})
+    
+    return jsonify({'success': True})
 
 
 class MultiAgentState(TypedDict):

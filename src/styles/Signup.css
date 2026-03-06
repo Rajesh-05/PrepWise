@@ -18,10 +18,10 @@
     min-height: 560px;
 }
 
-/* Left Side - Branding */
+/* Left — Branding */
 .signup-branding {
     flex: 1;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--color-navy, #0F2D5C);
     color: white;
     padding: 3rem 2.5rem;
     display: flex;
@@ -31,6 +31,8 @@
 
 .signup-branding .branding-content {
     text-align: center;
+    position: relative;
+    z-index: 2;
 }
 
 .signup-branding .logo-section {
@@ -87,7 +89,7 @@
     line-height: 1.4;
 }
 
-/* Right Side - Form */
+/* Right — Form */
 .signup-form-section {
     flex: 1;
     padding: 3rem 2.5rem;
@@ -120,7 +122,6 @@
     line-height: 1.5;
 }
 
-/* Form Styles */
 .signup-form {
     width: 100%;
 }
@@ -227,7 +228,7 @@
 .signup-form .checkbox-container a {
     color: #667eea;
     text-decoration: none;
-    font-weight: 500;
+    font-weight: 600;
 }
 
 .signup-form .checkbox-container a:hover {
@@ -315,7 +316,6 @@
     border-color: #d1d5db;
 }
 
-/* Login Prompt */
 .login-prompt {
     text-align: center;
     margin-top: 0.75rem;
@@ -327,9 +327,9 @@
 }
 
 .login-prompt a {
-    color: #667eea;
+    color: #0F2D5C;
     text-decoration: none;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .login-prompt a:hover {

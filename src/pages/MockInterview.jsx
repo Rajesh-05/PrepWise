@@ -1,212 +1,361 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import Vapi from '@vapi-ai/web';
 import '../styles/MockInterview.css';
 
 const MockInterview = () => {
     const [jd, setJd] = useState('');
     const [fileName, setFileName] = useState('');
-    const [jdUploaded, setJdUploaded] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [result, setResult] = useState('');
-    const [error, setError] = useState('');
     const [interviewActive, setInterviewActive] = useState(false);
-    const [elapsed, setElapsed] = useState(0);
-    const timerRef = useRef(null);
-
-    const handleStopInterview = async () => {
-        try {
-            const response = await fetch('http://localhost:5000/stop-interview', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-            const data = await response.json();
-            if (response.ok) {
-                setInterviewActive(false);
-                setLoading(false);
-                setResult('Interview stopped.');
-                setElapsed(0);
-                if (timerRef.current) {
-                    clearInterval(timerRef.current);
-                }
-            } else {
-                setError(data.error || 'Failed to stop interview.');
-            }
-        } catch (err) {
-            setError('Could not connect to backend.');
-        }
-    };
-
-    const handleStartInterview = async () => {
-        if (loading || interviewActive) return;
-        setLoading(true);
-        setError('');
-        setResult('');
-        setInterviewActive(true);
-        setElapsed(0);
-        if (timerRef.current) {
-            clearInterval(timerRef.current);
-        }
-        timerRef.current = setInterval(() => {
-            setElapsed(prev => prev + 1);
-        }, 1000);
-        try {
-            const response = await fetch('http://localhost:5000/interview', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ jd }),
-            });
-            const data = await response.json();
-            if (response.ok) {
-                setResult(data.result);
-            } else {
-                setError(data.error || 'Failed to start interview.');
-                setInterviewActive(false);
-                if (timerRef.current) {
-                    clearInterval(timerRef.current);
-                }
-            }
-        } catch (err) {
-            setError('Could not connect to backend.');
-            setInterviewActive(false);
-            if (timerRef.current) {
-                clearInterval(timerRef.current);
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
+    const [vapi, setVapi] = useState(null);
+    const [callStatus, setCallStatus] = useState('disconnected');
+    const [interviewData, setInterviewData] = useState({ messages: [], startTime: null, endTime: null });
+    const [feedback, setFeedback] = useState(null);
+    const [showFeedback, setShowFeedback] = useState(false);
+    const [loadingFeedback, setLoadingFeedback] = useState(false);
+    const generateFeedbackRef = useRef(null);
 
     useEffect(() => {
-        return () => {
-            if (timerRef.current) {
-                clearInterval(timerRef.current);
-            }
-        };
+        const vapiInstance = new Vapi(process.env.REACT_APP_VAPI_PUBLIC_KEY);
+        setVapi(vapiInstance);
+        return () => { vapiInstance.stop(); };
     }, []);
 
+    useEffect(() => {
+        if (!vapi) return;
+        const handleCallStart = () => {
+            setCallStatus('active');
+            setInterviewActive(true);
+            setLoading(false);
+            setInterviewData({ messages: [], startTime: new Date(), endTime: null });
+            setFeedback(null);
+            setShowFeedback(false);
+        };
+        const handleCallEnd = () => {
+            setCallStatus('disconnected');
+            setInterviewActive(false);
+            setLoading(false);
+            setInterviewData(prev => ({ ...prev, endTime: new Date() }));
+            setTimeout(() => { if (generateFeedbackRef.current) generateFeedbackRef.current(); }, 1000);
+        };
+        const handleMessage = (message) => {
+            setInterviewData(prev => ({ ...prev, messages: [...prev.messages, message] }));
+        };
+        const handleError = (error) => {
+            console.error('Vapi error:', error);
+            setLoading(false);
+            setInterviewActive(false);
+            setCallStatus('disconnected');
+        };
+        vapi.on('call-start', handleCallStart);
+        vapi.on('call-end', handleCallEnd);
+        vapi.on('message', handleMessage);
+        vapi.on('error', handleError);
+        return () => {
+            vapi.off('call-start', handleCallStart);
+            vapi.off('call-end', handleCallEnd);
+            vapi.off('message', handleMessage);
+            vapi.off('error', handleError);
+        };
+    }, [vapi]);
+
+    const handleStartInterview = async () => {
+        if (!jd.trim()) { alert('Please provide a Job Description first.'); return; }
+        if (!vapi) { alert('Vapi SDK not initialized. Check your internet connection.'); return; }
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+            const response = await fetch('http://localhost:5000/api/vapi/assistant', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ jd })
+            });
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || 'Failed to create assistant');
+            }
+            const assistant = await response.json();
+            if (assistant.id) { await vapi.start(assistant.id); }
+            else throw new Error('Backend did not return an Assistant ID');
+        } catch (err) {
+            console.error('Failed to start Vapi call:', err);
+            setCallStatus('disconnected');
+            setLoading(false);
+            alert(`Failed to start interview: ${err.message}`);
+        }
+    };
+
+    const handleStopInterview = () => { if (vapi) vapi.stop(); };
 
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
         if (file) {
             setFileName(file.name);
             const reader = new FileReader();
-            reader.onload = (ev) => {
-                setJd(ev.target.result);
-                setJdUploaded(true);
-                setTimeout(() => setJdUploaded(false), 2000);
-            };
+            reader.onload = (ev) => setJd(ev.target.result);
             reader.readAsText(file);
         }
     };
 
-    // Format elapsed seconds to MM:SS for a small timer display
-    const formatElapsed = (seconds) => {
-        const mm = Math.floor(seconds / 60).toString().padStart(2, '0');
-        const ss = (seconds % 60).toString().padStart(2, '0');
-        return `${mm}:${ss}`;
+    const generateFeedback = async () => {
+        if (interviewData.messages.length === 0) return;
+        setLoadingFeedback(true);
+        setShowFeedback(true);
+        try {
+            const transcript = interviewData.messages
+                .map(msg => {
+                    const role = msg.type === 'transcript' ? (msg.role === 'assistant' ? 'Interviewer' : 'Candidate') : msg.type;
+                    const text = msg.transcript || msg.content || JSON.stringify(msg);
+                    return `${role}: ${text}`;
+                })
+                .join('\n\n');
+            const duration = interviewData.endTime && interviewData.startTime
+                ? (interviewData.endTime - interviewData.startTime) / 1000 / 60 : 0;
+            const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+            const response = await fetch('/api/vapi/generate-feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ jobDescription: jd, transcript, duration: Math.round(duration) })
+            });
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || 'Failed to generate feedback');
+            }
+            const feedbackData = await response.json();
+            setFeedback(feedbackData);
+        } catch (err) {
+            console.error('Failed to generate feedback:', err);
+            alert(`Failed to generate feedback: ${err.message}`);
+            setShowFeedback(false);
+        } finally {
+            setLoadingFeedback(false);
+        }
     };
+
+    useEffect(() => { generateFeedbackRef.current = generateFeedback; });
+
+    const statusIsActive = callStatus === 'active';
 
     return (
         <div className="mock-interview-page">
-            {/* Left Column: Instructions/Help */}
-            <aside className="instructions-column">
-                <h2>How it works</h2>
-                <ul>
-                    <li>Paste or upload a Job Description (JD) to start your mock interview.</li>
-                    <li>
-                        Click <b>Start Interview</b> to begin. The system will simulate a real interview based
-                        on your JD.
-                    </li>
-                    <li>You'll receive questions, feedback, and adaptive difficulty as you respond.</li>
-                    <li>Make sure your microphone is enabled for voice interaction.</li>
-                </ul>
-                <div style={{ marginTop: '1rem', fontSize: '0.85rem', color: '#64748b' }}>
-                    <span role="img" aria-label="info">ℹ️</span>{' '}
-                    <b>Tip:</b> Stay calm and answer as you would in a real interview!
-                </div>
-            </aside>
 
-            {/* Right Column: JD Input and Controls */}
-            <main className="interaction-column">
-                <form className="mock-form" onSubmit={e => { e.preventDefault(); handleStartInterview(); }}>
-                    <label htmlFor="jd-input" className="jd-label">
-                        Job Description (JD)
-                    </label>
-                    <textarea
-                        id="jd-input"
-                        value={jd}
-                        onChange={e => setJd(e.target.value)}
-                        placeholder="Paste Job Description (JD) here or upload a file..."
-                        rows={8}
-                        className="jd-textarea"
-                        aria-describedby="jd-helper"
-                    />
-                    <div id="jd-helper" className="helper-text">
-                        You can paste the JD or upload a file (.txt, .pdf, .doc, .docx).
+            {/* Two-column layout */}
+            <div className="mi-body">
+                {/* Left: How it works */}
+                <aside className="mi-instructions">
+                    <h2 className="mi-panel-title">How it works</h2>
+                    <div className="mi-steps">
+                        <div className="mi-step">
+                            <span className="step-num">1</span>
+                            <div>
+                                <strong>Paste or upload a Job Description</strong>
+                                <p>The interviewer tailors questions to the role requirements.</p>
+                            </div>
+                        </div>
+                        <div className="mi-step">
+                            <span className="step-num">2</span>
+                            <div>
+                                <strong>Click Start Interview</strong>
+                                <p>A voice session begins. Speak clearly into your microphone.</p>
+                            </div>
+                        </div>
+                        <div className="mi-step">
+                            <span className="step-num">3</span>
+                            <div>
+                                <strong>Finish & get feedback</strong>
+                                <p>After the session, receive detailed scores and improvement tips.</p>
+                            </div>
+                        </div>
                     </div>
-                    <div className="upload-group">
-                        <input
-                            type="file"
-                            accept=".txt,.pdf,.doc,.docx"
-                            id="jd-upload"
-                            style={{ display: 'none' }}
-                            onChange={handleFileUpload}
-                        />
-                        <label htmlFor="jd-upload" className="upload-btn" tabIndex={0}>
-                            <span role="img" aria-label="upload">📤</span> <span>Upload JD</span>
+
+                    <div className="mi-tips">
+                        <h3 className="mi-tips-title">💡 Tips for best results</h3>
+                        <ul>
+                            <li>Use a quiet room with no background noise</li>
+                            <li>Speak at a natural, clear pace</li>
+                            <li>Have the full JD ready — more detail = better questions</li>
+                        </ul>
+                    </div>
+                </aside>
+
+                {/* Right: Interaction */}
+                <main className="mi-interaction">
+                    {/* Active session indicator */}
+                    {interviewActive && (
+                        <div className="mi-live-banner">
+                            <div className="live-mic">🎙️</div>
+                            <p>Interviewer is listening... Speak when ready.</p>
+                        </div>
+                    )}
+
+                    <form className="mi-form" onSubmit={e => { e.preventDefault(); handleStartInterview(); }}>
+                        <label htmlFor="jd-input" className="mi-label">
+                            Job Description (JD)
                         </label>
-                        {fileName && <span className="file-name" title={fileName}><span role="img" aria-label="file">📄</span> {fileName}</span>}
-                        {jdUploaded && (
-                            <span style={{ color: '#16a34a', fontWeight: 600, fontSize: '0.85rem', marginLeft: '0.5rem' }}>
-                                <span role="img" aria-label="check">✅</span> JD uploaded
-                            </span>
+                        <textarea
+                            id="jd-input"
+                            className="mi-textarea"
+                            value={jd}
+                            onChange={e => setJd(e.target.value)}
+                            placeholder="Paste the Job Description here, or upload a file below..."
+                            rows={9}
+                            disabled={interviewActive}
+                        />
+
+                        <div className="mi-upload-group">
+                            <input
+                                type="file"
+                                accept=".txt,.pdf,.doc,.docx"
+                                id="jd-upload"
+                                className="sr-only"
+                                onChange={handleFileUpload}
+                                disabled={interviewActive}
+                            />
+                            <label htmlFor="jd-upload" className={`mi-upload-btn${interviewActive ? ' disabled' : ''}`}>
+                                📤 Upload JD
+                            </label>
+                            {fileName && (
+                                <span className="mi-filename">
+                                    📄 {fileName}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="mi-btn-group">
+                            {!interviewActive ? (
+                                <button
+                                    className="mi-btn primary"
+                                    type="submit"
+                                    disabled={loading || !jd.trim()}
+                                >
+                                    {loading ? (
+                                        <><span className="mi-spinner"></span> Connecting...</>
+                                    ) : (
+                                        <>▶ Start Interview</>
+                                    )}
+                                </button>
+                            ) : (
+                                <button
+                                    className="mi-btn danger"
+                                    type="button"
+                                    onClick={handleStopInterview}
+                                >
+                                    ⏹ Stop Interview
+                                </button>
+                            )}
+
+                            {!interviewActive && interviewData.messages.length > 0 && (
+                                <button
+                                    className="mi-btn secondary"
+                                    type="button"
+                                    onClick={generateFeedback}
+                                    disabled={loadingFeedback}
+                                >
+                                    {loadingFeedback ? '⏳ Analyzing...' : '📊 Get Feedback'}
+                                </button>
+                            )}
+                        </div>
+                    </form>
+                </main>
+            </div>
+
+            {/* Feedback Modal */}
+            {showFeedback && (
+                <div className="mi-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowFeedback(false); }}>
+                    <div className="mi-modal">
+                        <button className="mi-modal-close" onClick={() => setShowFeedback(false)}>✕</button>
+                        <h2 className="mi-modal-title">📊 Interview Feedback</h2>
+
+                        {loadingFeedback ? (
+                            <div className="mi-modal-loading">
+                                <div className="mi-spinner large"></div>
+                                <p>Analyzing your interview performance...</p>
+                            </div>
+                        ) : feedback ? (
+                            <div className="mi-feedback">
+                                {/* Score cards */}
+                                <div className="mi-score-grid">
+                                    {[
+                                        { label: 'Overall', value: feedback.overall_score, icon: '🏆' },
+                                        { label: 'Communication', value: feedback.communication_score, icon: '🗣️' },
+                                        { label: 'Technical', value: feedback.technical_score, icon: '💻' },
+                                        { label: 'Confidence', value: feedback.confidence_score, icon: '🎯' },
+                                    ].map(s => (
+                                        <div key={s.label} className="score-card">
+                                            <div className="score-icon">{s.icon}</div>
+                                            <div className="score-value">{s.value}<span>/10</span></div>
+                                            <div className="score-label">{s.label}</div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Summary */}
+                                <div className="mi-feedback-block">
+                                    <h3>Summary</h3>
+                                    <p>{feedback.summary}</p>
+                                </div>
+
+                                {/* Detailed */}
+                                <div className="mi-feedback-block">
+                                    <h3>Detailed Analysis</h3>
+                                    <p>{feedback.detailed_feedback}</p>
+                                </div>
+
+                                {/* Strengths */}
+                                {feedback.strengths?.length > 0 && (
+                                    <div className="mi-feedback-block strengths">
+                                        <h3>✅ Strengths</h3>
+                                        <ul>
+                                            {feedback.strengths.map((s, i) => <li key={i}>{s}</li>)}
+                                        </ul>
+                                    </div>
+                                )}
+
+                                {/* Weaknesses */}
+                                {feedback.weaknesses?.length > 0 && (
+                                    <div className="mi-feedback-block weaknesses">
+                                        <h3>⚠️ Areas for Improvement</h3>
+                                        <ul>
+                                            {feedback.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
+                                        </ul>
+                                    </div>
+                                )}
+
+                                {/* Actions */}
+                                {feedback.recommended_actions?.length > 0 && (
+                                    <div className="mi-feedback-block actions">
+                                        <h3>🎯 Recommended Actions</h3>
+                                        <ul>
+                                            {feedback.recommended_actions.map((a, i) => <li key={i}>{a}</li>)}
+                                        </ul>
+                                    </div>
+                                )}
+
+                                <div className="mi-modal-footer">
+                                    <button
+                                        className="mi-btn primary"
+                                        onClick={() => {
+                                            setShowFeedback(false);
+                                            setJd('');
+                                            setInterviewData({ messages: [], startTime: null, endTime: null });
+                                        }}
+                                    >
+                                        Start New Interview
+                                    </button>
+                                    <button
+                                        className="mi-btn outline"
+                                        onClick={() => window.location.href = '/dashboard'}
+                                    >
+                                        View Dashboard
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <p className="mi-modal-empty">No feedback available yet.</p>
                         )}
                     </div>
-                    <div className="button-group">
-                        <button
-                            className="start-button enhanced-btn"
-                            type="submit"
-                            disabled={loading || !jd.trim() || interviewActive}
-                            aria-busy={loading}
-                        >
-                            <span><span role="img" aria-label="play">▶️</span> Start Interview</span>
-                        </button>
-                        <button
-                            className="stop-button enhanced-btn"
-                            type="button"
-                            disabled={!interviewActive}
-                            onClick={handleStopInterview}
-                        >
-                            <span role="img" aria-label="stop">⏹️</span> Stop Interview
-                        </button>
-                    </div>
-                    {interviewActive && (
-                        <div className="elapsed-timer">
-                            <span role="img" aria-label="timer" style={{ marginRight: '0.4rem' }}>⏱️</span>
-                            Elapsed: {formatElapsed(elapsed)}
-                        </div>
-                    )}
-                    {error && (
-                        <div className="error-message">
-                            <span>{error}</span>
-                            <button className="close-error" onClick={() => setError('')} title="Dismiss" aria-label="Dismiss error">&times;</button>
-                        </div>
-                    )}
-                </form>
-                {result && (
-                    <div className="mock-result-section">
-                        <div className="system-message">
-                            <span role="status" className="result-message">
-                                <span role="img" aria-label="success" style={{ marginRight: '6px' }}>✅</span>
-                                {result}
-                            </span>
-                        </div>
-                    </div>
-                )}
-            </main>
+                </div>
+            )}
         </div>
     );
 };

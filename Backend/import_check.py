@@ -1,6 +1,6 @@
 import importlib
 modules = [
-    'asyncio','logging','sounddevice','numpy','google','google.genai','os','queue','threading','dotenv','json','flask','flask_cors','time','math','fitz','tempfile','requests','pdfplumber','pandas','jobspy','pymongo''PyJWT'
+    'asyncio','logging','os','queue','threading','dotenv','json','flask','flask_cors','time','math','tempfile','requests','pdfplumber','pandas','jobspy','pymongo','PyJWT','werkzeug'
 ]
 missing = []
 for m in modules:

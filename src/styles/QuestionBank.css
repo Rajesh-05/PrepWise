@@ -146,6 +146,7 @@
     transition: all 0.2s ease;
 }
 
+
 .submit-button:hover {
     background: #059669;
     box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
@@ -226,11 +227,14 @@
 
 .loading-big {
     font-size: 1.5rem;
+    font-size: 1.5rem;
     font-weight: 600;
     color: #667eea;
     text-align: center;
     margin: 2rem 0;
+    font-family: 'Sora', sans-serif;
 }
+
 
 .answer-text {
     font-size: 0.9rem;
@@ -238,6 +242,7 @@
     font-weight: 500;
     margin-bottom: 0.375rem;
 }
+
 
 .explanation-text {
     font-size: 0.875rem;

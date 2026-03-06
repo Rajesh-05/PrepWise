@@ -25,8 +25,45 @@ const Chat = () => {
     const inputRef = useRef(null);
     const liveRef = useRef(null);
 
+
+    // Fetch chat sessions from backend on mount, and persist in localStorage
+    useEffect(() => {
+        const fetchChats = async () => {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            if (!token) return;
+            try {
+                const response = await fetch('/api/chat-sessions', {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+                if (response.ok && data.sessions) {
+                    const convs = data.sessions.map((s, idx) => ({
+                        id: s._id || s.session_id || idx,
+                        session_id: s._id || s.session_id || idx,
+                        title: s.topic || 'Chat Session',
+                        messages: (s.messages || []).map(m => ({ role: m.role, content: m.content })),
+                        createdAt: s.started_at ? new Date(s.started_at) : new Date(),
+                        updatedAt: s.last_message_at ? new Date(s.last_message_at) : new Date()
+                    }));
+                    setConversations(convs);
+                    localStorage.setItem('chat_conversations', JSON.stringify(convs));
+
+                    // Only set active if none selected (prevent overriding user selection if they clicked fast)
+                    setActiveConversationId(prev => (prev ? prev : (convs.length > 0 ? convs[0].id : null)));
+                }
+            } catch (err) {
+                console.error("Failed to fetch chats:", err);
+                // Keep existing localStorage data if fetch fails
+            }
+        };
+        fetchChats();
+    }, []);
+
+
     const activeConversation = conversations.find(c => c.id === activeConversationId);
-    const messages = activeConversation?.messages || [];
+    // Memoize messages to avoid triggering useEffect on every render
+    const messages = React.useMemo(() => activeConversation?.messages || [], [activeConversation]);
 
     // Auto-scroll to bottom on new messages
     useEffect(() => {
@@ -87,6 +124,7 @@ const Chat = () => {
             updatedAt: new Date()
         };
         setConversations(prev => [newConv, ...prev]);
+        localStorage.setItem('chat_conversations', JSON.stringify([newConv, ...conversations]));
         setActiveConversationId(newConv.id);
         if (window.innerWidth <= 768) setIsSidebarOpen(false);
     };
@@ -186,7 +224,27 @@ const Chat = () => {
         }
     };
 
-    const deleteConversation = (convId) => {
+    const deleteConversation = async (convId) => {
+        const conv = conversations.find(c => c.id === convId);
+        // If this conversation is from backend (has a session_id), delete from backend
+        if (conv && conv.session_id) {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            try {
+                const response = await fetch(`/api/chat-sessions/${conv.session_id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) {
+                    console.error('Failed to delete chat session from backend');
+                    return; // Don't delete from frontend if backend deletion failed
+                }
+            } catch (err) {
+                console.error('Error deleting chat session:', err);
+                return; // Don't delete from frontend if backend deletion failed
+            }
+        }
+
+        // Delete from frontend
         if (conversations.length === 1) {
             const newId = Date.now();
             setConversations([{
@@ -201,6 +259,7 @@ const Chat = () => {
         } else {
             const filtered = conversations.filter(c => c.id !== convId);
             setConversations(filtered);
+            localStorage.setItem('chat_conversations', JSON.stringify(filtered));
             if (activeConversationId === convId && filtered.length > 0) {
                 setActiveConversationId(filtered[0].id);
             }
@@ -302,7 +361,7 @@ const Chat = () => {
             }
             return `<p>${content.replace(/\n/g, '<br>')}</p>`;
         });
-        
+
         return formatted;
     };
 
@@ -375,8 +434,8 @@ const Chat = () => {
                 
                 <ul className="conversation-list">
                     {conversations.map(conv => (
-                        <li 
-                            key={conv.id} 
+                        <li
+                            key={conv.id}
                             className={`conversation ${conv.id === activeConversationId ? 'active' : ''}`}
                             onClick={() => switchConversation(conv.id)}
                         >
@@ -477,7 +536,13 @@ const Chat = () => {
 
                 {/* Messages */}
                 <div className="message-list" ref={listRef}>
-                    {messages.length === 0 ? (
+                    {!activeConversationId ? (
+                        <div className="chat-welcome">
+                            <div className="welcome-icon">💬</div>
+                            <h3>No Active Conversation</h3>
+                            <p>Click the <strong>"New"</strong> button to start a new conversation with your AI Interview Coach!</p>
+                        </div>
+                    ) : messages.length === 0 ? (
                         <div className="chat-welcome">
                             <div className="welcome-icon">🎓</div>
                             <h3>PrepWise AI Career Assistant</h3>

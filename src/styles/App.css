@@ -1,5 +1,8 @@
-/* Import Inter font for professional typography */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+/* ===================================================
+   PrepWise — Global Design System
+   Theme: Campus to Career (Human-Friendly, Student-First)
+   =================================================== */
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
 
 /* ===== CSS Custom Properties (Design Tokens) ===== */
 :root {
@@ -60,6 +63,14 @@ body {
   font-weight: 400;
 }
 
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-navy);
+}
+
+/* ── App Shell ── */
 .App {
   min-height: 100vh;
   display: flex;
@@ -103,6 +114,7 @@ body {
   padding: 0.625rem 1.5rem;
   border-radius: var(--radius-md);
   text-decoration: none;
+  font-family: var(--font-body);
   font-weight: 600;
   transition: all var(--transition);
   display: inline-flex;

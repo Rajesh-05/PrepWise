@@ -38,7 +38,7 @@
 }
 
 .footer-section p {
-    color: #94a3b8;
+    color: rgba(255, 255, 255, 0.65);
     line-height: 1.7;
     margin-bottom: 1rem;
     font-size: 0.9rem;
@@ -55,7 +55,7 @@
 }
 
 .footer-section ul li a {
-    color: #94a3b8;
+    color: rgba(255, 255, 255, 0.62);
     text-decoration: none;
     transition: color 0.2s ease;
     font-size: 0.875rem;

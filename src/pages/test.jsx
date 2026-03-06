@@ -181,7 +181,10 @@ Generate the complete, ATS-optimized resume. Output ONLY the resume text, no exp
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            "x-goog-api-key": apiKey
+            "x-goog-api-key": apiKey,
+            ...(localStorage.getItem('auth_token') || localStorage.getItem('session_token') ? {
+              'Authorization': `Bearer ${localStorage.getItem('auth_token') || localStorage.getItem('session_token')}`
+            } : {})
           },
           body: JSON.stringify({
             contents: [{

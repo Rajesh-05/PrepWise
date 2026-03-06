@@ -306,6 +306,7 @@
 
 .message-list::-webkit-scrollbar {
     width: 6px;
+    width: 6px;
 }
 
 .message-list::-webkit-scrollbar-track {
@@ -469,7 +470,7 @@
 }
 
 .message-text pre.code-block {
-    background: #1e293b;
+    background: var(--color-navy-dark, #091D3E);
     padding: 1rem;
     border-radius: 10px;
     overflow-x: auto;
@@ -490,6 +491,8 @@
 .message.user .message-text pre.code-block {
     background: rgba(0, 0, 0, 0.25);
     border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.25);
+    border-color: rgba(255, 255, 255, 0.15);
 }
 
 .message-text ul.msg-list,
@@ -500,6 +503,7 @@
 
 .message-text ul.msg-list li,
 .message-text ol.msg-list li {
+    margin: 0.4rem 0;
     margin: 0.4rem 0;
     line-height: 1.6;
 }
@@ -514,7 +518,7 @@
 
 .message-text strong {
     font-weight: 700;
-    color: #0f172a;
+    color: var(--color-navy, #0F2D5C);
 }
 
 .message.user .message-text strong {
@@ -552,7 +556,7 @@
 
 .message.user .message-text blockquote {
     border-left-color: rgba(255, 255, 255, 0.5);
-    color: rgba(255, 255, 255, 0.9);
+    color: rgba(255, 255, 255, 0.85);
 }
 
 .message-text hr {
@@ -624,6 +628,7 @@
         transform: translateY(0);
         opacity: 0.4;
     }
+
     30% {
         transform: translateY(-6px);
         opacity: 1;
@@ -784,6 +789,8 @@
     border-radius: 14px;
     padding: 0.5rem 0.5rem 0.5rem 1rem;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background: var(--color-cream, #FFFBF5);
+    color: var(--color-text, #1C2B3A);
 }
 
 .input-wrapper:focus-within {

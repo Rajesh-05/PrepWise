@@ -3,6 +3,7 @@
     line-height: 1.6;
     color: #1e293b;
     overflow-x: hidden;
+    background: var(--color-cream, #FFFBF5);
 }
 
 /* ===== Hero Section ===== */
@@ -11,14 +12,18 @@
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     position: relative;
     display: flex;
-    align-items: center;
+    align-items: stretch;
     overflow: hidden;
 }
 
+
+/* Subtle dot grid on cream side */
 .hero-background {
     position: absolute;
     inset: 0;
+    inset: 0;
     z-index: 1;
+    pointer-events: none;
 }
 
 .hero-shapes {
@@ -57,17 +62,18 @@
 .hero-content {
     position: relative;
     z-index: 2;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 4rem;
-    align-items: center;
-    max-width: 1200px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-width: 840px;
     margin: 0 auto;
     padding: 4rem 2rem;
 }
 
+
+/* ── Hero Left (cream side) ── */
 .hero-left {
-    color: white;
+    color: var(--color-text, #1C2B3A);
 }
 
 .hero-badge {
@@ -165,14 +171,16 @@
     font-size: 0.75rem;
 }
 
+/* Stats row */
 .hero-stats {
     display: flex;
+    gap: 2.5rem;
     gap: 2.5rem;
     flex-wrap: wrap;
 }
 
 .stat-item {
-    text-align: center;
+    text-align: left;
 }
 
 .stat-number {
@@ -213,7 +221,7 @@
 }
 
 .element-1 {
-    top: 0;
+    top: 5%;
     left: 0;
 }
 
@@ -235,9 +243,11 @@
 .element-text {
     font-size: 0.8rem;
     font-weight: 600;
-    color: #667eea;
+    color: var(--color-navy, #0F2D5C);
+    font-family: 'DM Sans', sans-serif;
 }
 
+/* Central illustration */
 .main-visual {
     position: absolute;
     top: 50%;
@@ -318,6 +328,7 @@
     overflow: hidden;
 }
 
+/* Left amber accent bar — appears on hover */
 .feature-card::before {
     content: '';
     position: absolute;
@@ -521,6 +532,8 @@
     display: flex;
     gap: 1.25rem;
     margin-bottom: 1.25rem;
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
 }
 
 .company-row:last-child {
@@ -630,6 +643,7 @@
     max-width: 520px;
     margin-left: auto;
     margin-right: auto;
+    line-height: 1.7;
 }
 
 .cta-actions {
@@ -694,7 +708,7 @@
 /* ===== Responsive ===== */
 @media (max-width: 1024px) {
     .hero-content {
-        gap: 3rem;
+        gap: 2.5rem;
     }
 
     .highlight-content {
@@ -719,12 +733,12 @@
         margin-right: auto;
     }
 
-    .hero-stats {
-        justify-content: center;
+    .hero-shapes::after {
+        display: none;
     }
 
-    .hero-actions {
-        justify-content: center;
+    .hero {
+        background: var(--color-cream, #FFFBF5);
     }
 
     .hero-visual {

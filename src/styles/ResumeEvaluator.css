@@ -1,5 +1,40 @@
 /* ===== Resume Evaluator Page ===== */
 .resume-evaluator-page {
+    min-height: calc(100vh - 72px);
+    padding: 1.5rem 1.5rem 4rem;
+    background: var(--color-cream, #FFFBF5);
+    background-image: radial-gradient(circle, rgba(15, 45, 92, 0.05) 1px, transparent 1px);
+    background-size: 28px 28px;
+    font-family: 'DM Sans', var(--font-body, sans-serif);
+}
+
+/* Two-column layout */
+.eval-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 1.75rem;
+    align-items: start;
+    min-height: calc(100vh - 140px);
+}
+
+/* Left sidebar panel */
+.eval-sidebar {
+    background: white;
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: 0 3px 12px rgba(15, 45, 92, 0.07);
+    border: 1.5px solid rgba(15, 45, 92, 0.06);
+    border-top: 3px solid var(--color-navy, #0F2D5C);
+    position: sticky;
+    top: 88px;
+}
+
+.eval-sidebar-title {
+    font-family: 'Sora', var(--font-display, sans-serif);
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--color-navy, #0F2D5C);
+    margin: 0 0 1.25rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -8,6 +43,7 @@
     background: #f8f9fa;
 }
 
+/* Main form card */
 .eval-card {
     width: 100%;
     max-width: 720px;
@@ -25,6 +61,8 @@
     font-weight: 700;
     font-size: 1.5rem;
     text-align: center;
+    font-family: 'Sora', var(--font-display, sans-serif);
+    letter-spacing: -0.02em;
 }
 
 .header-with-logo {
@@ -104,6 +142,7 @@
     line-height: 1.4;
 }
 
+/* Form */
 /* Form */
 .eval-form .field {
     margin-bottom: 1.5rem;
@@ -291,6 +330,7 @@
 }
 
 /* Toast */
+/* Toast */
 .toast {
     position: fixed;
     right: 1rem;
@@ -314,6 +354,8 @@
 .toast-close {
     background: transparent;
     border: none;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 1rem;
     color: rgba(255, 255, 255, 0.8);
     font-size: 1rem;
     cursor: pointer;
