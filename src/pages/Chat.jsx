@@ -1,31 +1,26 @@
-
-import React, { useState, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/Chat.css';
-// Gemini system prompt and API key removed - now handled by backend
+
+// Multi-Agent endpoint configuration
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 const Chat = () => {
-    // Initialize state from localStorage if available (Instant Load)
-    const [conversations, setConversations] = useState(() => {
-        const local = localStorage.getItem('chat_conversations');
-        return local ? JSON.parse(local) : [];
-    });
-
-    // Set active conversation from initial state if needed
-    const [activeConversationId, setActiveConversationId] = useState(() => {
-        const local = localStorage.getItem('chat_conversations');
-        if (local) {
-            const convs = JSON.parse(local);
-            return convs.length > 0 ? convs[0].id : null;
+    const [conversations, setConversations] = useState([
+        {
+            id: 1,
+            title: 'New Conversation',
+            messages: [],
+            current_agent: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
         }
-        return null;
-    });
-
+    ]);
+    const [activeConversationId, setActiveConversationId] = useState(1);
     const [value, setValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
-    const [editingConvId, setEditingConvId] = useState(null);
-    const [editingTitle, setEditingTitle] = useState('');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const listRef = useRef(null);
     const inputRef = useRef(null);
     const liveRef = useRef(null);
@@ -70,38 +65,75 @@ const Chat = () => {
     // Memoize messages to avoid triggering useEffect on every render
     const messages = React.useMemo(() => activeConversation?.messages || [], [activeConversation]);
 
+    // Auto-scroll to bottom on new messages
     useEffect(() => {
-        // Auto-scroll to bottom on new messages
         if (listRef.current) {
-            listRef.current.scrollTop = listRef.current.scrollHeight;
+            listRef.current.scrollTo({
+                top: listRef.current.scrollHeight,
+                behavior: 'smooth'
+            });
         }
-        // Announce new assistant messages to screen readers
         const last = messages[messages.length - 1];
-        if (last && liveRef.current && last.role === 'model') {
+        if (last && liveRef.current && last.role === 'assistant') {
             liveRef.current.textContent = `Assistant: ${last.content}`;
         }
     }, [messages]);
+
+    // Load conversations from localStorage
+    useEffect(() => {
+        const saved = localStorage.getItem('chat_conversations');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                if (parsed.length > 0) {
+                    setConversations(parsed);
+                    setActiveConversationId(parsed[0].id);
+                }
+            } catch (err) {
+                console.error('Failed to load conversations:', err);
+            }
+        }
+    }, []);
+
+    // Save conversations to localStorage
+    useEffect(() => {
+        if (conversations.length > 0) {
+            localStorage.setItem('chat_conversations', JSON.stringify(conversations));
+        }
+    }, [conversations]);
+
+    // Auto-close sidebar on mobile
+    useEffect(() => {
+        const handleResize = () => {
+            if (window.innerWidth <= 768) {
+                setIsSidebarOpen(false);
+            }
+        };
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     const createNewConversation = () => {
         const newConv = {
             id: Date.now(),
             title: 'New Conversation',
             messages: [],
+            current_agent: null,
             createdAt: new Date(),
             updatedAt: new Date()
         };
         setConversations(prev => [newConv, ...prev]);
         localStorage.setItem('chat_conversations', JSON.stringify([newConv, ...conversations]));
         setActiveConversationId(newConv.id);
+        if (window.innerWidth <= 768) setIsSidebarOpen(false);
     };
 
     const updateConversationTitle = (convId, firstMessage) => {
-        // Generate a title from the first message
-        const title = firstMessage.length > 30
-            ? firstMessage.substring(0, 30) + '...'
+        const title = firstMessage.length > 35 
+            ? firstMessage.substring(0, 35) + '...' 
             : firstMessage;
-
-        setConversations(prev => prev.map(conv =>
+        setConversations(prev => prev.map(conv => 
             conv.id === convId ? { ...conv, title } : conv
         ));
     };
@@ -114,27 +146,23 @@ const Chat = () => {
         setValue('');
         setError('');
 
-        // Add user message to conversation
+        // Reset textarea height
+        if (inputRef.current) {
+            inputRef.current.style.height = 'auto';
+        }
+
         const newUserMsg = {
             role: 'user',
-            content: userMessage
+            content: userMessage,
+            timestamp: new Date().toISOString()
         };
 
-        setConversations(prev => {
-            const updated = prev.map(conv =>
-                conv.id === activeConversationId
-                    ? {
-                        ...conv,
-                        messages: [...conv.messages, newUserMsg],
-                        updatedAt: new Date()
-                    }
-                    : conv
-            );
-            localStorage.setItem('chat_conversations', JSON.stringify(updated));
-            return updated;
-        });
+        setConversations(prev => prev.map(conv => 
+            conv.id === activeConversationId 
+                ? { ...conv, messages: [...conv.messages, newUserMsg], updatedAt: new Date() } 
+                : conv
+        ));
 
-        // Update conversation title if this is the first message
         if (messages.length === 0) {
             updateConversationTitle(activeConversationId, userMessage);
         }
@@ -142,73 +170,57 @@ const Chat = () => {
         setIsLoading(true);
 
         try {
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            const currentConv = conversations.find(c => c.id === activeConversationId);
+            const conversationMessages = currentConv?.messages || [];
+            const currentAgent = currentConv?.current_agent || null;
 
-            if (!token) {
-                throw new Error('User is not authenticated');
-            }
-
-            // Save user message to backend
-            const activeConv = conversations.find(c => c.id === activeConversationId);
-            const backendSessionId = activeConv?.session_id || activeConversationId;
-
-            const userMsgResponse = await fetch('/api/user/chat-message', {
+            const response = await fetch(`${API_BASE_URL}/multi-agent/chat`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    session_id: backendSessionId,
-                    message: userMessage,
-                    role: 'user'
+                    query: userMessage,
+                    messages: conversationMessages,
+                    current_agent: currentAgent
                 })
             });
 
-            const userMsgData = await userMsgResponse.json();
-
-            // If backend created a new session and returned session_id, update our local conversation
-            if (userMsgData.session_id) {
-                setConversations(prev => prev.map(conv =>
-                    conv.id === activeConversationId
-                        ? { ...conv, session_id: userMsgData.session_id }
-                        : conv
-                ));
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to get response');
             }
 
-            // If backend returned an AI response, add it to the conversation
-            if (userMsgData.assistant_message) {
-                const newAiMsg = {
-                    role: 'model',
-                    content: userMsgData.assistant_message
-                };
+            const data = await response.json();
+            
+            const newAiMsg = {
+                role: 'assistant',
+                content: data.response,
+                category: data.category,
+                timestamp: new Date().toISOString()
+            };
 
-                setConversations(prev => prev.map(conv =>
-                    conv.id === activeConversationId
-                        ? {
-                            ...conv,
-                            messages: [...conv.messages, newAiMsg],
-                            updatedAt: new Date()
-                        }
-                        : conv
-                ));
-            }
+            setConversations(prev => prev.map(conv => 
+                conv.id === activeConversationId 
+                    ? { 
+                        ...conv, 
+                        messages: [...conv.messages, newAiMsg],
+                        current_agent: data.current_agent || conv.current_agent,
+                        updatedAt: new Date()
+                    } 
+                    : conv
+            ));
 
         } catch (err) {
             console.error('Chat error:', err);
             setError(err.message || 'Failed to send message. Please try again.');
-
-            // Remove the user message if there was an error
-            setConversations(prev => prev.map(conv =>
-                conv.id === activeConversationId
-                    ? {
-                        ...conv,
-                        messages: conv.messages.slice(0, -1)
-                    }
+            setConversations(prev => prev.map(conv => 
+                conv.id === activeConversationId 
+                    ? { ...conv, messages: conv.messages.slice(0, -1) } 
                     : conv
             ));
         } finally {
             setIsLoading(false);
+            // Re-focus input after send
+            setTimeout(() => inputRef.current?.focus(), 100);
         }
     };
 
@@ -234,17 +246,15 @@ const Chat = () => {
 
         // Delete from frontend
         if (conversations.length === 1) {
-            // Don't delete the last conversation, just clear it
             const newId = Date.now();
-            const newConv = {
+            setConversations([{
                 id: newId,
                 title: 'New Conversation',
                 messages: [],
+                current_agent: null,
                 createdAt: new Date(),
                 updatedAt: new Date()
-            };
-            setConversations([newConv]);
-            localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
+            }]);
             setActiveConversationId(newId);
         } else {
             const filtered = conversations.filter(c => c.id !== convId);
@@ -256,157 +266,96 @@ const Chat = () => {
         }
     };
 
-    const startEditingTitle = (convId, currentTitle) => {
-        setEditingConvId(convId);
-        setEditingTitle(currentTitle);
-    };
-
-    const cancelEditingTitle = () => {
-        setEditingConvId(null);
-        setEditingTitle('');
-    };
-
-    const saveTitle = async (convId) => {
-        if (!editingTitle.trim()) {
-            cancelEditingTitle();
-            return;
-        }
-
-        const conv = conversations.find(c => c.id === convId);
-
-        // Update backend if this is a persisted session
-        if (conv && conv.session_id) {
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-            try {
-                const response = await fetch(`/api/chat-sessions/${conv.session_id}`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ topic: editingTitle.trim() })
-                });
-
-                if (!response.ok) {
-                    console.error('Failed to update chat session title in backend');
-                }
-            } catch (err) {
-                console.error('Error updating chat session title:', err);
-            }
-        }
-
-        // Update frontend state
-        const updated = conversations.map(c =>
-            c.id === convId ? { ...c, title: editingTitle.trim() } : c
-        );
-        setConversations(updated);
-        localStorage.setItem('chat_conversations', JSON.stringify(updated));
-        cancelEditingTitle();
-    };
-
-    const clearAllConversations = async () => {
-        if (window.confirm('Are you sure you want to clear all conversations? This cannot be undone.')) {
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-
-            // Delete all sessions from backend
-            try {
-                const response = await fetch('/api/chat-sessions', {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-
-                if (!response.ok) {
-                    console.error('Failed to delete all chat sessions from backend');
-                }
-            } catch (err) {
-                console.error('Error deleting all chat sessions:', err);
-            }
-
-            // Clear frontend state
-            const newConv = {
-                id: Date.now(),
+    const clearAllConversations = () => {
+        if (window.confirm('Clear all conversations? This cannot be undone.')) {
+            const newId = Date.now();
+            setConversations([{
+                id: newId,
                 title: 'New Conversation',
                 messages: [],
+                current_agent: null,
                 createdAt: new Date(),
                 updatedAt: new Date()
-            };
-            setConversations([newConv]);
-            setActiveConversationId(newConv.id);
-            localStorage.setItem('chat_conversations', JSON.stringify([newConv]));
+            }]);
+            setActiveConversationId(newId);
+            localStorage.removeItem('chat_conversations');
         }
     };
 
-    const resizeInput = () => {
+    const exportConversation = (convId) => {
+        const conv = conversations.find(c => c.id === convId);
+        if (!conv) return;
+
+        let markdown = `# ${conv.title}\n\n`;
+        markdown += `**Created:** ${new Date(conv.createdAt).toLocaleString()}\n`;
+        markdown += `**Last Updated:** ${new Date(conv.updatedAt).toLocaleString()}\n`;
+        markdown += `**Messages:** ${conv.messages.length}\n\n---\n\n`;
+
+        conv.messages.forEach((msg) => {
+            const role = msg.role === 'user' ? '👤 You' : '🤖 AI Assistant';
+            const timestamp = msg.timestamp ? ` (${new Date(msg.timestamp).toLocaleTimeString()})` : '';
+            markdown += `## ${role}${timestamp}\n\n`;
+            if (msg.category) markdown += `*Category: ${msg.category}*\n\n`;
+            markdown += `${msg.content}\n\n---\n\n`;
+        });
+
+        const blob = new Blob([markdown], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${conv.title.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    const resizeInput = useCallback(() => {
         if (!inputRef.current) return;
         const ta = inputRef.current;
         ta.style.height = 'auto';
-        ta.style.height = `${Math.min(200, ta.scrollHeight)}px`;
-    };
+        ta.style.height = `${Math.min(150, ta.scrollHeight)}px`;
+    }, []);
 
     const formatMessageContent = (content) => {
-        // Enhanced markdown-like formatting for rich text display
         let formatted = content;
-
-        // Escape HTML first to prevent XSS
+        
         formatted = formatted
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
-
-        // Code blocks with language support
+        
         formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
             return `<pre class="code-block"><code class="language-${lang || 'plaintext'}">${code.trim()}</code></pre>`;
         });
-
-        // Inline code
+        
         formatted = formatted.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-
-        // Bold
         formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-        // Italic
         formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-
-        // Headers
         formatted = formatted.replace(/^### (.+)$/gm, '<h3 class="msg-h3">$1</h3>');
         formatted = formatted.replace(/^## (.+)$/gm, '<h2 class="msg-h2">$1</h2>');
         formatted = formatted.replace(/^# (.+)$/gm, '<h1 class="msg-h1">$1</h1>');
-
-        // Numbered lists
         formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li class="numbered">$1</li>');
-
-        // Bullet points (handle both - and •)
-        formatted = formatted.replace(/^[•-]\s+(.+)$/gm, '<li>$1</li>');
-
-        // Wrap consecutive list items in ul tags
+        formatted = formatted.replace(/^[•\-]\s+(.+)$/gm, '<li>$1</li>');
+        
         formatted = formatted.replace(/(<li(?:\s+class="numbered")?>.*?<\/li>\s*)+/g, (match) => {
             if (match.includes('class="numbered"')) {
                 return `<ol class="msg-list">${match.replace(/\s+class="numbered"/g, '')}</ol>`;
             }
             return `<ul class="msg-list">${match}</ul>`;
         });
-
-        // Links
+        
         formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-
-        // Blockquotes
         formatted = formatted.replace(/^&gt;\s+(.+)$/gm, '<blockquote>$1</blockquote>');
-
-        // Horizontal rule
         formatted = formatted.replace(/^---$/gm, '<hr>');
-
-        // Paragraphs (double line break)
+        
         formatted = formatted.replace(/\n\n+/g, '</p><p>');
         formatted = `<p>${formatted}</p>`;
-
-        // Clean up empty paragraphs
         formatted = formatted.replace(/<p><\/p>/g, '');
         formatted = formatted.replace(/<p>\s*<\/p>/g, '');
-
-        // Single line breaks within paragraphs
+        
         formatted = formatted.replace(/<p>(.*?)<\/p>/gs, (match, content) => {
-            // Don't add <br> if content has block elements
-            if (content.includes('<pre>') || content.includes('<ul>') || content.includes('<ol>') ||
+            if (content.includes('<pre>') || content.includes('<ul>') || content.includes('<ol>') || 
                 content.includes('<h1>') || content.includes('<h2>') || content.includes('<h3>')) {
                 return `<p>${content}</p>`;
             }
@@ -416,101 +365,176 @@ const Chat = () => {
         return formatted;
     };
 
+    const getCategoryBadge = (category) => {
+        const categoryMap = {
+            '1': { label: 'Learning', color: '#10b981', icon: '📚' },
+            '2': { label: 'Resume', color: '#8b5cf6', icon: '📝' },
+            '3': { label: 'Interview', color: '#f59e0b', icon: '🎤' },
+            '4': { label: 'Job Search', color: '#3b82f6', icon: '💼' },
+            'Tutorial': { label: 'Tutorial', color: '#10b981', icon: '📖' },
+            'Question': { label: 'Q&A', color: '#06b6d4', icon: '💡' }
+        };
+        const cat = categoryMap[category] || { label: 'AI Response', color: '#667eea', icon: '🤖' };
+        return (
+            <span className="category-badge" style={{ backgroundColor: `${cat.color}15`, color: cat.color }}>
+                <span className="badge-icon">{cat.icon}</span>
+                {cat.label}
+            </span>
+        );
+    };
+
+    const formatTime = (timestamp) => {
+        if (!timestamp) return '';
+        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const switchConversation = (convId) => {
+        setActiveConversationId(convId);
+        if (window.innerWidth <= 768) setIsSidebarOpen(false);
+    };
+
     return (
-        <div className="chat-page">
-            <aside className="chat-sidebar">
+        <div className={`chat-page ${isSidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
+            {/* Mobile overlay */}
+            {isSidebarOpen && (
+                <div 
+                    className="sidebar-overlay" 
+                    onClick={() => setIsSidebarOpen(false)}
+                    aria-hidden="true"
+                />
+            )}
+
+            {/* Sidebar */}
+            <aside className={`chat-sidebar ${isSidebarOpen ? 'open' : ''}`}>
                 <div className="chat-sidebar-header">
                     <h3>Conversations</h3>
-                    <button className="btn btn-secondary btn-small chat-new-btn" onClick={createNewConversation}>
-                        New
-                    </button>
+                    <div className="sidebar-header-actions">
+                        <button 
+                            className="icon-btn new-chat-btn" 
+                            onClick={createNewConversation}
+                            title="New conversation"
+                            aria-label="New conversation"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 5v14M5 12h14"/>
+                            </svg>
+                        </button>
+                        <button 
+                            className="icon-btn close-sidebar-btn"
+                            onClick={() => setIsSidebarOpen(false)}
+                            title="Close sidebar"
+                            aria-label="Close sidebar"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M15 18l-6-6 6-6"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
+                
                 <ul className="conversation-list">
                     {conversations.map(conv => (
                         <li
                             key={conv.id}
                             className={`conversation ${conv.id === activeConversationId ? 'active' : ''}`}
-                            onClick={() => setActiveConversationId(conv.id)}
+                            onClick={() => switchConversation(conv.id)}
                         >
-                            {editingConvId === conv.id ? (
-                                <div className="conv-title-edit" onClick={(e) => e.stopPropagation()}>
-                                    <input
-                                        type="text"
-                                        value={editingTitle}
-                                        onChange={(e) => setEditingTitle(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                saveTitle(conv.id);
-                                            } else if (e.key === 'Escape') {
-                                                cancelEditingTitle();
-                                            }
-                                        }}
-                                        onBlur={() => saveTitle(conv.id)}
-                                        autoFocus
-                                        className="conv-title-input"
-                                    />
+                            <div className="conv-icon">
+                                {conv.messages.length === 0 ? '✨' : '💬'}
+                            </div>
+                            <div className="conv-info">
+                                <div className="conv-title">{conv.title}</div>
+                                <div className="conv-sub">
+                                    {conv.messages.length === 0 
+                                        ? 'Start chatting' 
+                                        : `${conv.messages.length} ${conv.messages.length === 1 ? 'message' : 'messages'}`}
                                 </div>
-                            ) : (
-                                <div
-                                    className="conv-title"
-                                    onDoubleClick={(e) => {
-                                        e.stopPropagation();
-                                        startEditingTitle(conv.id, conv.title);
-                                    }}
-                                    title="Double-click to rename"
-                                >
-                                    {conv.title}
-                                </div>
-                            )}
-                            <div className="conv-sub">
-                                {conv.messages.length === 0
-                                    ? 'No messages yet'
-                                    : `${conv.messages.length} messages`}
                             </div>
                             <div className="conv-actions">
-                                <button
-                                    className="conv-edit-btn"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        startEditingTitle(conv.id, conv.title);
-                                    }}
-                                    aria-label="Rename conversation"
-                                    title="Rename"
+                                <button 
+                                    className="conv-action-btn"
+                                    onClick={(e) => { e.stopPropagation(); exportConversation(conv.id); }}
+                                    aria-label="Export conversation"
+                                    title="Export"
                                 >
-                                    ✏️
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                                    </svg>
                                 </button>
-                                <button
-                                    className="conv-delete-btn"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteConversation(conv.id);
-                                    }}
+                                <button 
+                                    className="conv-action-btn delete"
+                                    onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
                                     aria-label="Delete conversation"
                                     title="Delete"
                                 >
-                                    ×
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                                    </svg>
                                 </button>
                             </div>
                         </li>
                     ))}
                 </ul>
+
                 <div className="chat-sidebar-footer">
-                    <button className="btn btn-secondary btn-small" onClick={clearAllConversations}>
+                    <button className="clear-all-btn" onClick={clearAllConversations}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                        </svg>
                         Clear All
                     </button>
                 </div>
             </aside>
 
-            <section className="chat-main chat-card">
-                {/* <header className="chat-header">
-                    <div>
-                        <h2>AI Interview Coach</h2>
-                        <div className="chat-meta">
-                            {activeConversation?.title || 'New Conversation'} • {messages.length} messages
-                        </div>
+            {/* Main Chat Area */}
+            <section className="chat-main">
+                {/* Chat Header */}
+                <div className="chat-header">
+                    <button 
+                        className="icon-btn toggle-sidebar-btn"
+                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                        aria-label={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
+                        title={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+                        </svg>
+                    </button>
+                    <div className="chat-header-title">
+                        <h2>{activeConversation?.title || 'New Conversation'}</h2>
+                        {activeConversation?.current_agent && (
+                            <span className="agent-indicator">
+                                {(() => {
+                                    const agentMap = {
+                                        'general': '🤖 PrepWise AI',
+                                        'learning_resource': '📚 Learning',
+                                        'tutorial': '📖 Tutorial',
+                                        'interview_preparation': '🎤 Interview',
+                                        'resume_making': '📝 Resume',
+                                        'job_search': '💼 Job Search'
+                                    };
+                                    return agentMap[activeConversation.current_agent] || '🤖 AI Assistant';
+                                })()}
+                            </span>
+                        )}
                     </div>
-                </header> */}
+                    <div className="chat-header-actions">
+                        {messages.length > 0 && (
+                            <button 
+                                className="icon-btn"
+                                onClick={() => exportConversation(activeConversationId)}
+                                title="Export conversation"
+                                aria-label="Export conversation"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                </div>
 
+                {/* Messages */}
                 <div className="message-list" ref={listRef}>
                     {!activeConversationId ? (
                         <div className="chat-welcome">
@@ -520,99 +544,141 @@ const Chat = () => {
                         </div>
                     ) : messages.length === 0 ? (
                         <div className="chat-welcome">
-                            <div className="welcome-icon">🎯</div>
-                            <h3>Welcome to Your AI Interview Coach!</h3>
-                            <p>I'm here to help you:</p>
-                            <ul>
-                                <li>Learn technical concepts and algorithms</li>
-                                <li>Practice behavioral interview questions</li>
-                                <li>Understand system design patterns</li>
-                                <li>Prepare for company-specific interviews</li>
-                                <li>Get feedback on your approach</li>
-                            </ul>
-                            <p><strong>What would you like to work on today?</strong></p>
+                            <div className="welcome-icon">🎓</div>
+                            <h3>PrepWise AI Career Assistant</h3>
+                            <p>Your intelligent multi-agent assistant for career success. Ask me anything about learning, resumes, interviews, or job searching.</p>
+                            <div className="feature-grid">
+                                <button className="feature-card" onClick={() => { setValue('Create a tutorial on machine learning basics'); inputRef.current?.focus(); }}>
+                                    <span className="feature-icon">📚</span>
+                                    <h4>Learning & Tutorials</h4>
+                                    <p>Master topics with tutorials and code examples</p>
+                                </button>
+                                <button className="feature-card" onClick={() => { setValue('Help me build a resume for a software engineering role'); inputRef.current?.focus(); }}>
+                                    <span className="feature-icon">📝</span>
+                                    <h4>Resume Building</h4>
+                                    <p>Create ATS-optimized resumes</p>
+                                </button>
+                                <button className="feature-card" onClick={() => { setValue('Give me interview questions for a data scientist position'); inputRef.current?.focus(); }}>
+                                    <span className="feature-icon">🎤</span>
+                                    <h4>Interview Prep</h4>
+                                    <p>Practice with curated questions</p>
+                                </button>
+                                <button className="feature-card" onClick={() => { setValue('Search for remote React developer jobs'); inputRef.current?.focus(); }}>
+                                    <span className="feature-icon">💼</span>
+                                    <h4>Job Search</h4>
+                                    <p>Discover tailored opportunities</p>
+                                </button>
+                            </div>
                         </div>
                     ) : (
-                        messages.map((msg, index) => (
-                            <motion.div
-                                key={index}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ duration: 0.3 }}
-                                className={`message ${msg.role === 'user' ? 'user' : 'assistant'}`}
-                            >
-                                <div className="message-body">
-                                    <div
-                                        className="message-text"
-                                        dangerouslySetInnerHTML={{ __html: formatMessageContent(msg.content) }}
-                                    />
-                                </div>
-                            </motion.div>
-                        ))
-                    )}
-                    {isLoading && (
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="message assistant"
-                        >
-                            <div className="message-body">
-                                <div className="typing-indicator">
-                                    <span></span>
-                                    <span></span>
-                                    <span></span>
-                                </div>
-                            </div>
-                        </motion.div>
+                        <div className="messages-container">
+                            <AnimatePresence>
+                                {messages.map((msg, index) => (
+                                    <motion.div
+                                        key={index}
+                                        initial={{ opacity: 0, y: 12 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.25, ease: 'easeOut' }}
+                                        className={`message ${msg.role === 'user' ? 'user' : 'assistant'}`}
+                                    >
+                                        <div className="message-avatar">
+                                            {msg.role === 'user' ? '👤' : '🤖'}
+                                        </div>
+                                        <div className="message-content">
+                                            {msg.category && (
+                                                <div className="message-category">
+                                                    {getCategoryBadge(msg.category)}
+                                                </div>
+                                            )}
+                                            <div 
+                                                className="message-text"
+                                                dangerouslySetInnerHTML={{ __html: formatMessageContent(msg.content) }}
+                                            />
+                                            <div className="message-time">
+                                                {formatTime(msg.timestamp)}
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+                            
+                            {isLoading && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="message assistant"
+                                >
+                                    <div className="message-avatar">🤖</div>
+                                    <div className="message-content">
+                                        <div className="typing-indicator">
+                                            <span></span>
+                                            <span></span>
+                                            <span></span>
+                                            <span className="typing-label">Thinking...</span>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </div>
                     )}
                 </div>
 
-                {/* ARIA live region for screen readers (offscreen) */}
+                {/* ARIA live region */}
                 <div ref={liveRef} className="sr-only" aria-live="polite" aria-atomic="true"></div>
 
-                {error && (
-                    <div className="chat-error">
-                        <span className="error-icon">⚠️</span>
-                        {error}
-                    </div>
-                )}
+                {/* Error */}
+                <AnimatePresence>
+                    {error && (
+                        <motion.div 
+                            className="chat-error"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 10 }}
+                        >
+                            <span className="error-icon">⚠️</span>
+                            <span className="error-text">{error}</span>
+                            <button className="error-dismiss" onClick={() => setError('')} aria-label="Dismiss error">×</button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
+                {/* Input Area */}
                 <form className="chat-input" onSubmit={handleSend}>
-                    <textarea
-                        ref={inputRef}
-                        placeholder={!activeConversationId ? "Click 'New' to start a conversation..." : "Ask me anything about interview prep, technical concepts, or career advice..."}
-                        value={value}
-                        onChange={e => { setValue(e.target.value); resizeInput(); }}
-                        rows={1}
-                        aria-label="Message input"
-                        onKeyDown={(e) => {
-                            // Send on Enter, add newline on Shift+Enter
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSend();
-                                // reset size after sending
-                                setTimeout(() => resizeInput(), 0);
-                            }
-                        }}
-                        onInput={resizeInput}
-                        disabled={isLoading || !activeConversationId}
-                    />
-                    <div className="chat-input-actions">
-                        <button
-                            type="button"
-                            className="btn btn-outline"
-                            onClick={() => setValue('')}
-                            disabled={isLoading || !activeConversationId}
+                    <div className="input-wrapper">
+                        <textarea
+                            ref={inputRef}
+                            placeholder="Ask about tutorials, resume building, interview prep, job search..."
+                            value={value}
+                            onChange={e => { setValue(e.target.value); resizeInput(); }}
+                            rows={1}
+                            aria-label="Type your message"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSend();
+                                }
+                            }}
+                            onInput={resizeInput}
+                            disabled={isLoading}
+                        />
+                        <button 
+                            type="submit" 
+                            className={`send-btn ${isLoading ? 'loading' : ''} ${value.trim() ? 'active' : ''}`}
+                            disabled={isLoading || !value.trim()}
+                            title="Send message (Enter)"
+                            aria-label="Send message"
                         >
-                            Clear
+                            {isLoading ? (
+                                <div className="send-spinner" />
+                            ) : (
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                                </svg>
+                            )}
                         </button>
-                        <button
-                            type="submit"
-                            className={`btn btn-primary ${isLoading ? 'loading' : ''}`}
-                            disabled={isLoading || !value.trim() || !activeConversationId}
-                        >
-                            {isLoading ? 'Sending...' : 'Send'}
-                        </button>
+                    </div>
+                    <div className="input-hint">
+                        <kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for new line
                     </div>
                 </form>
             </section>
