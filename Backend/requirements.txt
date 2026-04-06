@@ -10,3 +10,8 @@ pymongo[srv]
 PyJWT
 Flask-Dance
 werkzeug
+langchain
+langchain-community
+langchain-groq
+duckduckgo-search
+langgraph
