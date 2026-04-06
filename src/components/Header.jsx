@@ -79,8 +79,8 @@ const Header = () => {
             <div className="header-container">
                 <div className="logo">
                     <Link to="/">
-                        <h1>PrepWise.AI</h1>
-                        <span>Your AI Career Companion</span>
+                        <h1>Prep<span className="logo-accent">Wise</span></h1>
+                        <span>Career Toolkit</span>
                     </Link>
                 </div>
                 <nav className="nav">
