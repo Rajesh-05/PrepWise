@@ -143,7 +143,6 @@ const Chat = () => {
 
         try {
             const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-
             if (!token) {
                 throw new Error('User is not authenticated');
             }
@@ -151,6 +150,11 @@ const Chat = () => {
             // Save user message to backend
             const activeConv = conversations.find(c => c.id === activeConversationId);
             const backendSessionId = activeConv?.session_id || activeConversationId;
+
+            // Prepare conversation history for multi-agent (send all messages)
+            const convMessages = activeConv?.messages || [];
+            // Try to keep track of current_agent
+            const currentAgent = activeConv?.current_agent || null;
 
             const userMsgResponse = await fetch('/api/user/chat-message', {
                 method: 'POST',
@@ -161,7 +165,9 @@ const Chat = () => {
                 body: JSON.stringify({
                     session_id: backendSessionId,
                     message: userMessage,
-                    role: 'user'
+                    role: 'user',
+                    messages: convMessages,
+                    current_agent: currentAgent
                 })
             });
 
@@ -177,10 +183,10 @@ const Chat = () => {
             }
 
             // If backend returned an AI response, add it to the conversation
-            if (userMsgData.assistant_message) {
+            if (userMsgData.response) {
                 const newAiMsg = {
                     role: 'model',
-                    content: userMsgData.assistant_message
+                    content: userMsgData.response
                 };
 
                 setConversations(prev => prev.map(conv =>
@@ -188,7 +194,8 @@ const Chat = () => {
                         ? {
                             ...conv,
                             messages: [...conv.messages, newAiMsg],
-                            updatedAt: new Date()
+                            updatedAt: new Date(),
+                            current_agent: userMsgData.current_agent || conv.current_agent // track agent
                         }
                         : conv
                 ));
