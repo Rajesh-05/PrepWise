@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { FileText, Sparkles, Download } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -120,7 +120,6 @@ const ResumeBuilder = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
-  const resumePreviewRef = useRef(null);
 
   const generateResume = async () => {
     if (!jobDescription.trim()) {

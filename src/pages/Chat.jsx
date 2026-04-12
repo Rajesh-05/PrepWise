@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/Chat.css';
 
@@ -26,7 +26,10 @@ const Chat = () => {
     const liveRef = useRef(null);
 
     const activeConversation = conversations.find(c => c.id === activeConversationId);
-    const messages = activeConversation?.messages || [];
+    const messages = useMemo(
+        () => activeConversation?.messages || [],
+        [activeConversation?.messages]
+    );
 
     // Auto-scroll to bottom on new messages
     useEffect(() => {
@@ -277,7 +280,7 @@ const Chat = () => {
         formatted = formatted.replace(/^## (.+)$/gm, '<h2 class="msg-h2">$1</h2>');
         formatted = formatted.replace(/^# (.+)$/gm, '<h1 class="msg-h1">$1</h1>');
         formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li class="numbered">$1</li>');
-        formatted = formatted.replace(/^[•\-]\s+(.+)$/gm, '<li>$1</li>');
+        formatted = formatted.replace(/^[•-]\s+(.+)$/gm, '<li>$1</li>');
         
         formatted = formatted.replace(/(<li(?:\s+class="numbered")?>.*?<\/li>\s*)+/g, (match) => {
             if (match.includes('class="numbered"')) {
