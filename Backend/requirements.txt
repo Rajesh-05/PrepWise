@@ -19,4 +19,3 @@ gunicorn
 sounddevice
 google-generativeai
 itsdangerous
-bson
