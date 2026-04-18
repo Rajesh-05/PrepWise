@@ -1,6 +1,6 @@
 import asyncio
 import logging
-import sounddevice as sd
+# import sounddevice as sd  # Removed for server deployment
 import numpy as np
 from google import genai
 from google.genai import types
@@ -333,56 +333,9 @@ def run_interview_session(job_description):
     def interview_thread():
         global interview_thread_running, interview_stop_event
         interview_stop_event = asyncio.Event()
-        input_stream = None
-        output_stream = None
-        async def interview():
-            global interview_stop_event, interview_thread_running
-            nonlocal input_stream, output_stream
-            try:
-                async with client.aio.live.connect(model=model, config=session_config) as session:
-                    print("✅ Connected to Gemini Live API")
-                    input_stream = sd.InputStream(
-                        channels=1,
-                        samplerate=16000,
-                        dtype=np.int16,
-                        callback=audio_input_callback,
-                        blocksize=1024
-                    )
-                    output_stream = sd.OutputStream(
-                        channels=1,
-                        samplerate=24000,
-                        dtype=np.int16,
-                        callback=audio_output_callback,
-                        blocksize=2048
-                    )
-                    input_stream.start()
-                    output_stream.start()
-                    print("🎙️  Audio streams started\n")
-                    send_task = asyncio.create_task(send_audio(session, interview_stop_event))
-                    receive_task = asyncio.create_task(receive_audio(session, interview_stop_event))
-                    while not interview_stop_event.is_set():
-                        await asyncio.sleep(0.05)
-                    # Stop audio streams immediately when stop event is set
-                    if input_stream:
-                        input_stream.stop()
-                        input_stream.close()
-                    if output_stream:
-                        output_stream.stop()
-                        output_stream.close()
-                    print("Interview stopped by user.")
-                    await asyncio.sleep(0.2)
-                    # Optionally cancel tasks
-                    send_task.cancel()
-                    receive_task.cancel()
-                    await asyncio.gather(send_task, receive_task, return_exceptions=True)
-            except Exception as e:
-                print(f"\n❌ Error: {e}")
-                import traceback
-                traceback.print_exc()
-            finally:
-                interview_stop_event.set()
-        asyncio.run(interview())
-        # Ensure state is reset after thread ends
+        # Audio input/output removed for server deployment
+        print("Audio input/output is disabled on the server.")
+        # You may want to implement a text-based interview session here instead
         with interview_lock:
             interview_thread_running = False
             interview_stop_event = None
