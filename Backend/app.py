@@ -6,6 +6,22 @@ import threading
 from dotenv import load_dotenv
 import json
 from flask import Flask, request, jsonify, redirect, send_from_directory
+import os
+import threading
+import json
+from queue import Queue
+import numpy as np
+from dotenv import load_dotenv
+from langgraph.graph import StateGraph, END, START
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, trim_messages
+from langchain_community.tools import DuckDuckGoSearchResults
+from langchain.agents import create_agent
+from langchain.tools import tool as langchain_tool
+from typing import Dict, TypedDict
+import requests
+import re
 from flask_cors import CORS
 import time
 import math
@@ -114,71 +130,64 @@ def update_chat_session(session_id):
     data = request.get_json()
     new_topic = data.get('topic', '').strip()
     
-    if not new_topic:
-        return jsonify({'error': 'Topic cannot be empty'}), 400
-    
-    from bson import ObjectId
-    result = db['chat_sessions'].update_one(
-        {'_id': ObjectId(session_id), 'user_id': user['_id']},
-        {'$set': {'topic': new_topic}}
-    )
-    
-    if result.matched_count == 1:
-        return jsonify({'message': 'Chat session updated', 'topic': new_topic})
-    else:
-        return jsonify({'error': 'Chat session not found or not authorized'}), 404
 
-@app.route('/api/chat-sessions', methods=['GET', 'DELETE'])
-@require_auth
-def handle_chat_sessions():
-    db = getattr(app, 'mongo_db', None)
-    email = getattr(request, 'user_email', None)
-    if db is None or email is None:
-        return jsonify({'error': 'Database or user not found'}), 500
-    user = db['users'].find_one({'email': email})
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-    
-    if request.method == 'DELETE':
-        # Delete all chat sessions for this user
-        result = db['chat_sessions'].delete_many({'user_id': user['_id']})
-        return jsonify({'message': f'{result.deleted_count} chat sessions deleted'})
-    
-    # GET request
-    # Sort by last_message_at descending (most recent first)
-    sessions = list(db['chat_sessions'].find({'user_id': user['_id']}).sort('last_message_at', -1))
-    return jsonify({'sessions': serialize_doc(sessions)})
+    # --- Chat Sessions API ---
+    @app.route('/api/chat-sessions/<session_id>', methods=['DELETE'])
+    @require_auth
+    def delete_chat_session(session_id):
+        db = getattr(app, 'mongo_db', None)
+        email = getattr(request, 'user_email', None)
+        if db is None or email is None:
+            return jsonify({'error': 'Database or user not found'}), 503
+        user = db['users'].find_one({'email': email})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        from bson import ObjectId
+        result = db['chat_sessions'].delete_one({'_id': ObjectId(session_id), 'user_id': user['_id']})
+        if result.deleted_count == 1:
+            return jsonify({'message': 'Session deleted'})
+        else:
+            return jsonify({'error': 'Session not found'}), 404
 
-# --- V2V Agent Evaluation API ---
-@app.route('/api/v2v-evaluation', methods=['POST'])
-@require_auth
-def save_v2v_evaluation():
-    db = getattr(app, 'mongo_db', None)
-    email = getattr(request, 'user_email', None)
-    if db is None or email is None:
-        return jsonify({'error': 'Database or user not found'}), 500
-    data = request.get_json()
-    score = data.get('score')
-    suggestions = data.get('suggestions')
-    details = data.get('details')
-    timestamp = datetime.now(timezone.utc)
-    user = db['users'].find_one({'email': email})
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-    eval_doc = {
-        'user_id': user['_id'],
-        'email': email,
-        'score': score,
-        'suggestions': suggestions,
-        'details': details,
-        'timestamp': timestamp
-    }
-    db['v2v_evaluations'].insert_one(eval_doc)
-    return jsonify({'message': 'Evaluation saved'})
+    @app.route('/api/chat-sessions/<session_id>', methods=['PATCH'])
+    @require_auth
+    def update_chat_session(session_id):
+        db = getattr(app, 'mongo_db', None)
+        email = getattr(request, 'user_email', None)
+        if db is None or email is None:
+            return jsonify({'error': 'Database or user not found'}), 503
+        user = db['users'].find_one({'email': email})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        data = request.get_json()
+        new_topic = data.get('topic', '').strip()
+        if not new_topic:
+            return jsonify({'error': 'Topic cannot be empty'}), 400
+        from bson import ObjectId
+        result = db['chat_sessions'].update_one(
+            {'_id': ObjectId(session_id), 'user_id': user['_id']},
+            {'$set': {'topic': new_topic}}
+        )
+        if result.matched_count == 1:
+            return jsonify({'message': 'Session updated'})
+        else:
+            return jsonify({'error': 'Session not found'}), 404
 
-@app.route('/api/v2v-evaluations', methods=['GET'])
-@require_auth
-def get_v2v_evaluations():
+    @app.route('/api/chat-sessions', methods=['GET', 'DELETE'])
+    @require_auth
+    def handle_chat_sessions():
+        db = getattr(app, 'mongo_db', None)
+        email = getattr(request, 'user_email', None)
+        if db is None or email is None:
+            return jsonify({'error': 'Database or user not found'}), 503
+        user = db['users'].find_one({'email': email})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        if request.method == 'DELETE':
+            db['chat_sessions'].delete_many({'user_id': user['_id']})
+            return jsonify({'message': 'All sessions deleted'})
+        sessions = list(db['chat_sessions'].find({'user_id': user['_id']}).sort('last_message_at', -1))
+        return jsonify({'sessions': serialize_doc(sessions)})
     db = getattr(app, 'mongo_db', None)
     email = getattr(request, 'user_email', None)
     if db is None or email is None:
@@ -1634,7 +1643,7 @@ def get_gemini_chat_response(message, history=[]):
     Get response from Gemini for chat with history and config
     """
     try:
-        model_name = "gemini-2.0-flash" 
+        model_name = "gemini-2.5-flash" 
         # Strip newline/spaces just in case
         api_key = API_KEY.strip() if API_KEY else ""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
@@ -1707,89 +1716,78 @@ def get_gemini_chat_response(message, history=[]):
         logging.error(f"Error calling Gemini: {e}")
         return "Sorry, I encountered an error processing your request."
 
+
+# --- Multi-Agent Chat Integration ---
+from multi_agent_reference_app import (
+    multi_agent_app, get_agent_by_name, GROQ_API_KEY
+)
+
 @app.route('/api/user/chat-message', methods=['POST'])
 @require_auth
 def save_chat_message():
     """
-    Save chat messages for session tracking
+    Multi-agent chat endpoint (replaces Gemini single-agent logic).
     """
-    # Get database handle from app (preferred) or global fallback
-    current_db = getattr(app, 'mongo_db', None)
-    if current_db is None:
-        current_db = globals().get('db')
-
-    if current_db is None:
-        return jsonify({"error": "Database not configured"}), 503
+    if not GROQ_API_KEY:
+        return jsonify({"error": "Multi-agent chat is not configured. GROQ_API_KEY is missing."}), 503
+    if multi_agent_app is None:
+        return jsonify({"error": "Multi-agent workflow failed to initialize."}), 503
 
     try:
         data = request.get_json() or {}
         session_id = data.get('session_id', 'default')
         message = data.get('message', '')
         role = data.get('role', 'user')
+        messages = data.get('messages', [])
+        current_agent_name = data.get('current_agent')
 
         if not message:
             return jsonify({"error": "Message cannot be empty"}), 400
 
-        # 1. Save USER message
-        result = auth_utils.update_chat_session(current_db, request.user_email, session_id, message, role)
-        if not result:
-            return jsonify({"error": "Failed to update chat session"}), 500
+        # Compose conversation history for multi-agent
+        # If frontend does not send history, try to fetch from DB (optional, for compatibility)
+        if not messages:
+            # Optionally, fetch from DB if needed
+            messages = []
 
-        response_data = {"message": "Chat message saved"}
-        
-        # If a new session was created, result is the _id
-        if isinstance(result, str):
-            response_data["session_id"] = result
-            # Update session_id for the subsequent AI response
-            session_id = result
-            
-        if role == 'user':
-            # Retrieve history for context
-            history = []
-            try:
-                # Resolve User ObjectId from email (reliable for both Google Auth and standard auth)
-                # request.user_id might be a Google ID string, not a Mongo ObjectId
-                user = current_db['users'].find_one({'email': request.user_email})
-                if user:
-                    user_id = user['_id']
-                    
-                    # Query db for this session using the resolved user_id
-                    # Handle both session_id string (timestamp) and ObjectId (backend generated)
-                    query = {'user_id': user_id}
-                    if auth_utils.ObjectId.is_valid(session_id):
-                        query['$or'] = [{'session_id': session_id}, {'_id': auth_utils.ObjectId(session_id)}]
-                    else:
-                        query['session_id'] = session_id
-                        
-                    chat_session = current_db['chat_sessions'].find_one(query)
-                    
-                    if chat_session and 'messages' in chat_session:
-                        # Exclude the very last message which is the one we just added
-                        all_msgs = chat_session.get('messages', [])
-                        if len(all_msgs) > 1:
-                            history = all_msgs[:-1]
-            except Exception as hist_e:
-                logging.error(f"Error fetching history: {hist_e}")
-                # Continue without history if fail
-            
-            # Get AI response
-            ai_response_text = get_gemini_chat_response(message, history=history)
-            
-            # Save AI message
-            ai_result = auth_utils.update_chat_session(
-                current_db, 
-                request.user_email, 
-                session_id, 
-                ai_response_text, 
-                role='assistant' # db stores as 'assistant', Gemini needs 'model' - mapping handled in get_gemini
-            )
-            
-            if ai_result:
-                response_data["assistant_message"] = ai_response_text
-            else:
-                logging.error("Failed to save AI response to database")
-
-        return jsonify(response_data)
+        # Multi-agent workflow expects 'query', 'messages', 'current_agent'
+        query = message
+        try:
+            # Try to continue with current agent if provided
+            if current_agent_name:
+                agent = get_agent_by_name(current_agent_name)
+                if agent:
+                    result = agent.check_and_respond(query, messages)
+                    if result["should_handle"]:
+                        return jsonify({
+                            "query": query,
+                            "response": result["response"],
+                            "current_agent": current_agent_name,
+                            "should_continue": True,
+                            "status": "success"
+                        })
+            # Otherwise, route via workflow
+            results = multi_agent_app.invoke({
+                "query": query,
+                "messages": messages,
+                "current_agent": current_agent_name or "",
+                "category": "",
+                "response": "",
+                "should_reroute": False
+            })
+            final_agent = results.get("current_agent", "unknown")
+            return jsonify({
+                "query": query,
+                "category": results.get("category", "Unknown"),
+                "response": results.get("response", "No response generated"),
+                "current_agent": final_agent,
+                "should_continue": True,
+                "status": "success"
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({"error": f"Error processing query: {str(e)}"}), 500
     except Exception as e:
         import traceback
         logging.error(f"Error in save_chat_message: {e}")
