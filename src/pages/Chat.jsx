@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { API_ENDPOINTS, getAuthHeaders } from '../config/api';
 import '../styles/Chat.css';
 
 // Multi-Agent endpoint configuration

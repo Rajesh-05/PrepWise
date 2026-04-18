@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Vapi from '@vapi-ai/web';
+import { API_ENDPOINTS, getAuthHeaders } from '../config/api';
 import '../styles/MockInterview.css';
 
 const MockInterview = () => {
@@ -65,7 +66,7 @@ const MockInterview = () => {
         setLoading(true);
         try {
             const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
-            const response = await fetch('http://localhost:5000/api/vapi/assistant', {
+            const response = await fetch(API_ENDPOINTS.VAPI_ASSISTANT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ jd })
