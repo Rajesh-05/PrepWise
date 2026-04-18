@@ -1,12 +1,13 @@
 import React from 'react';
 import '../styles/JobFinder.css';
+import { API_ENDPOINTS } from '../config/api';
 
 const JobDetails = ({ job, onClose }) => {
     if (!job) return null;
 
     const fetchGlassdoorLink = async (companyName) => {
         try {
-            const response = await fetch('http://127.0.0.1:5000/scrape-review', {
+            const response = await fetch(API_ENDPOINTS.SCRAPE_REVIEW, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

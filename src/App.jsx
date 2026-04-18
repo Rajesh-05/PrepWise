@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import axios from 'axios';
+import { API_ENDPOINTS } from './config/api';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Home from './pages/Home';
@@ -17,6 +19,10 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 
 import './styles/App.css';
+
+// Configure axios to use the backend API URL
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+axios.defaults.baseURL = API_BASE_URL;
 
 function AppContent() {
     const location = useLocation();

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { API_ENDPOINTS, getAuthHeaders } from '../config/api';
 import '../styles/ResumeEvaluator.css';
 
 const ResumeEvaluator = () => {
@@ -45,7 +46,7 @@ const ResumeEvaluator = () => {
                 formData.append('job_description', jdFile);
             }
             const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
-            const res = await fetch('http://localhost:5000/evaluate-resume', {
+            const res = await fetch(API_ENDPOINTS.EVALUATE_RESUME, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -81,7 +82,7 @@ const ResumeEvaluator = () => {
             const formData = new FormData();
             formData.append('file', improveResumeFile);
             const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
-            const res = await fetch('http://localhost:5000/improve-resume', {
+            const res = await fetch(API_ENDPOINTS.IMPROVE_RESUME, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`

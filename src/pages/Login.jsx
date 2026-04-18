@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Toast from '../components/Toast';
+import { API_ENDPOINTS, getAuthHeaders } from '../config/api';
 import '../styles/Login.css';
 
 const Login = () => {
@@ -65,7 +66,7 @@ const Login = () => {
 
     // Google login handler
     const handleGoogleLogin = () => {
-        window.location.href = 'http://localhost:5000/auth/google/login';
+        window.location.href = API_ENDPOINTS.AUTH_GOOGLE_LOGIN;
     };
 
     // Listen for Google login callback (session_token in URL hash)

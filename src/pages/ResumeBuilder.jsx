@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { FileText, Sparkles, Download } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { API_ENDPOINTS, getAuthHeaders } from '../config/api';
 import '../styles/ResumeBuilder.css';
 
 // Hardcoded user data
@@ -130,7 +131,7 @@ const ResumeBuilder = () => {
 
     try {
       const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
-      const response = await fetch('http://localhost:5000/generate-resume', {
+      const response = await fetch(API_ENDPOINTS.GENERATE_RESUME, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

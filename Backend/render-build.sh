@@ -1,2 +1,5 @@
 #!/usr/bin/env bash
-apt-get update && apt-get install -y portaudio19-dev
+# Render build script - minimal and production-ready
+# No apt-get calls needed - all dependencies are in requirements.txt
+
+pip install --upgrade pip
