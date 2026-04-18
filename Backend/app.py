@@ -1129,6 +1129,13 @@ def server_error(error):
     logger.error(f"Server error: {error}")
     return jsonify({"error": "Server error"}), 500
 
+@app.route("/", methods=["GET"])
+def health_check():
+    return jsonify({
+        "status": "ok",
+        "message": "PrepWise Backend is running"
+    }), 200
+
 # ===========================
 # MAIN ENTRY POINT (Gunicorn compatible)
 # ===========================
