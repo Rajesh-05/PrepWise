@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_ENDPOINTS, getAuthHeaders } from '../config/api';
 import '../styles/Header.css';
 
 const Header = () => {
@@ -11,7 +12,7 @@ const Header = () => {
 
     useEffect(() => {
         // Debug: Show token in console
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+        const token = localStorage.getItem('auth_token');
         console.log('Header.jsx: token from localStorage:', token);
         if (token) {
             fetchUserProfile(token);
@@ -39,7 +40,7 @@ const Header = () => {
 
     const fetchUserProfile = async (token) => {
         try {
-            const response = await axios.get('/auth/me', {
+            const response = await axios.get(API_ENDPOINTS.AUTH_ME, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -50,14 +51,13 @@ const Header = () => {
             console.error('Header.jsx: Failed to fetch user profile:', error);
             // Token might be expired
             localStorage.removeItem('auth_token');
-            localStorage.removeItem('session_token');
         }
     };
 
     const handleLogout = async () => {
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+        const token = localStorage.getItem('auth_token');
         try {
-            await axios.post('/auth/logout', {}, {
+            await axios.post(API_ENDPOINTS.AUTH_LOGOUT, {}, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -68,7 +68,6 @@ const Header = () => {
 
         // Clear local storage
         localStorage.removeItem('auth_token');
-        localStorage.removeItem('session_token');
         localStorage.removeItem('auth_user');
         setUser(null);
         navigate('/login');

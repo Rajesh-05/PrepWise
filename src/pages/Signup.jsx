@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_ENDPOINTS, getAuthHeaders } from '../config/api';
 import Toast from '../components/Toast';
 import '../styles/Signup.css';
 
@@ -93,16 +94,21 @@ const Signup = () => {
         setIsLoading(true);
         setServerError('');
         try {
-            await axios.post('/auth/signup', {
+            const response = await axios.post(API_ENDPOINTS.AUTH_SIGNUP, {
                 firstName: formData.firstName,
                 lastName: formData.lastName,
                 email: formData.email,
                 password: formData.password,
                 acceptMarketing: formData.acceptMarketing
             });
-            // On success, show toast and navigate to login
-            setToast({ show: true, message: 'Account created successfully! Redirecting to login...', type: 'success' });
-            setTimeout(() => navigate('/login', { replace: true, state: { signupEmail: formData.email } }), 1500);
+            
+            // Store token and user from response
+            if (response.data.token) {
+                localStorage.setItem('auth_token', response.data.token);
+                localStorage.setItem('auth_user', JSON.stringify(response.data.user));
+                setToast({ show: true, message: 'Account created successfully! Redirecting to dashboard...', type: 'success' });
+                setTimeout(() => navigate('/dashboard', { replace: true }), 1500);
+            }
         } catch (err) {
             const msg = err?.response?.data?.error || 'Failed to create account. Please try again.';
             setServerError(msg);
@@ -114,7 +120,7 @@ const Signup = () => {
 
     // Google login handler
     const handleGoogleLogin = () => {
-        window.location.href = '/login/google';
+        window.location.href = API_ENDPOINTS.AUTH_GOOGLE_LOGIN;
     };
 
     // Listen for Google login callback (session_token in URL query params)
@@ -122,12 +128,24 @@ const Signup = () => {
         const params = new URLSearchParams(window.location.search);
         const sessionToken = params.get('session_token');
         if (sessionToken) {
-            localStorage.setItem('session_token', sessionToken);
             localStorage.setItem('auth_token', sessionToken);
-            axios.post('/auto-login', { session_token: sessionToken })
+            console.log('Signup.jsx: session_token set:', sessionToken);
+            // Fetch user profile
+            axios.get(API_ENDPOINTS.AUTH_ME, {
+                headers: {
+                    'Authorization': `Bearer ${sessionToken}`
+                }
+            })
                 .then(res => {
+                    console.log('Signup.jsx: /auth/me response:', res.data);
                     localStorage.setItem('auth_user', JSON.stringify(res.data.user));
-                    navigate('/', { replace: true });
+                    setToast({ show: true, message: 'Login successful with Google!', type: 'success' });
+                    setTimeout(() => navigate('/dashboard', { replace: true }), 1000);
+                })
+                .catch(err => {
+                    console.error('Signup.jsx: Error fetching user after OAuth:', err);
+                    setToast({ show: true, message: 'Failed to complete Google login', type: 'error' });
+                    setTimeout(() => navigate('/signup'), 1500);
                 });
         }
     }, [navigate]);

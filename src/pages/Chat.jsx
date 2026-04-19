@@ -177,7 +177,10 @@ const Chat = () => {
 
             const response = await fetch(`${API_BASE_URL}/multi-agent/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+                },
                 body: JSON.stringify({
                     query: userMessage,
                     messages: conversationMessages,

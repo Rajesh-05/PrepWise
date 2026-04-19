@@ -30,7 +30,7 @@ const Login = () => {
         setIsLoading(true);
         setServerError('');
         try {
-            const res = await axios.post('/auth/login', {
+            const res = await axios.post(API_ENDPOINTS.AUTH_LOGIN, {
                 email: formData.email,
                 password: formData.password
             });
@@ -49,17 +49,20 @@ const Login = () => {
         }
     };
 
-    // Auto-login if session_token exists
+    // Auto-login if auth_token exists (already set by Google OAuth callback)
     useEffect(() => {
-        const sessionToken = localStorage.getItem('session_token');
-        if (sessionToken) {
-            axios.post('/auto-login', { session_token: sessionToken })
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+            // Token exists, fetch user profile
+            axios.get(API_ENDPOINTS.AUTH_ME, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
                 .then(res => {
                     localStorage.setItem('auth_user', JSON.stringify(res.data.user));
                     navigate('/', { replace: true });
                 })
                 .catch(() => {
-                    localStorage.removeItem('session_token');
+                    localStorage.removeItem('auth_token');
                 });
         }
     }, [navigate]);
