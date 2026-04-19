@@ -581,6 +581,83 @@ def auth_logout():
         revoke_token(auth_header.split(' ', 1)[1])
     return jsonify({"message": "Logged out successfully"}), 200
 
+@app.route('/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    """Send password reset link to user's email"""
+    if users_col is None:
+        return jsonify({"error": "Auth not configured"}), 503
+    
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+    
+    user = users_col.find_one({"email": email})
+    if not user:
+        # Don't reveal if email exists for security
+        return jsonify({"message": "If an account with this email exists, a password reset link will be sent"}), 200
+    
+    # Generate password reset token
+    try:
+        from itsdangerous import URLSafeTimedSerializer
+        serializer = URLSafeTimedSerializer(JWT_SECRET)
+        token = serializer.dumps(email, salt='password-reset-salt')
+        reset_url = f"{FRONTEND_URL}/reset-password?token={token}"
+        
+        # Log activity
+        log_activity(mongo_db, email, "password_reset", "Password reset requested")
+        
+        # In production, send email here
+        logger.info(f"Password reset link for {email}: {reset_url}")
+        
+        return jsonify({"message": "If an account with this email exists, a password reset link will be sent"}), 200
+    except Exception as e:
+        logger.error(f"Error generating password reset token: {e}")
+        return jsonify({"message": "If an account with this email exists, a password reset link will be sent"}), 200
+
+@app.route('/auth/reset-password', methods=['POST'])
+def reset_password():
+    """Reset password using token"""
+    if users_col is None:
+        return jsonify({"error": "Auth not configured"}), 503
+    
+    data = request.get_json() or {}
+    token = data.get('token')
+    new_password = data.get('password')
+    
+    if not token or not new_password:
+        return jsonify({"error": "Token and new password are required"}), 400
+    
+    if len(new_password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    
+    try:
+        from itsdangerous import URLSafeTimedSerializer, SignatureExpired
+        serializer = URLSafeTimedSerializer(JWT_SECRET)
+        email = serializer.loads(token, salt='password-reset-salt', max_age=3600)
+    except SignatureExpired:
+        return jsonify({"error": "Password reset link has expired"}), 400
+    except Exception as e:
+        logger.error(f"Invalid reset token: {e}")
+        return jsonify({"error": "Invalid or expired password reset link"}), 400
+    
+    # Update password
+    try:
+        hashed_password = generate_password_hash(new_password)
+        result = users_col.update_one(
+            {"email": email},
+            {"$set": {"passwordHash": hashed_password}}
+        )
+        
+        if result.modified_count == 0:
+            return jsonify({"error": "Failed to reset password"}), 500
+        
+        log_activity(mongo_db, email, "password_reset", "Password successfully reset")
+        return jsonify({"message": "Password reset successful"}), 200
+    except Exception as e:
+        logger.error(f"Error resetting password: {e}")
+        return jsonify({"error": f"Failed to reset password: {e}"}), 500
+
 # ===========================
 # CHAT SESSIONS
 # ===========================

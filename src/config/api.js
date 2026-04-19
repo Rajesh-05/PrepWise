@@ -17,6 +17,7 @@ export const API_ENDPOINTS = {
   AUTH_ME: `${API_BASE_URL}/auth/me`,
   AUTH_GOOGLE_LOGIN: `${API_BASE_URL}/auth/google/login`,
   AUTH_GOOGLE_CALLBACK: `${API_BASE_URL}/auth/google/callback`,
+  AUTH_FORGOT_PASSWORD: `${API_BASE_URL}/auth/forgot-password`,
 
   // Chat Sessions
   CHAT_SESSIONS: `${API_BASE_URL}/api/chat-sessions`,
