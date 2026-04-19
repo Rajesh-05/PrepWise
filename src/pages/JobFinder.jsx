@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { API_ENDPOINTS } from '../config/api';
 import '../styles/JobFinder.css';
 import JobCard from '../components/JobCard';
 import JobDetails from '../components/JobDetails';
@@ -17,9 +18,14 @@ const JobFinder = () => {
         setLoading(true);
         setError('');
         try {
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            const token = localStorage.getItem('auth_token');
+            const queryParams = new URLSearchParams({
+                query: filters.query,
+                location: filters.location,
+                num_jobs: '10'
+            });
             const res = await fetch(
-                `/api/jobs?query=${encodeURIComponent(filters.query)}&location=${encodeURIComponent(filters.location)}&num_jobs=10`,
+                `${API_ENDPOINTS.GET_JOBS}?${queryParams.toString()}`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
             const data = await res.json();

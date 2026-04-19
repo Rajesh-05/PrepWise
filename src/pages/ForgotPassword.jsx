@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
+import { API_ENDPOINTS } from '../config/api';
 import '../styles/ForgotPassword.css';
 
 const ForgotPassword = () => {
@@ -16,7 +17,7 @@ const ForgotPassword = () => {
         setError('');
 
         try {
-            const response = await axios.post('/auth/forgot-password', { email });
+            const response = await axios.post(API_ENDPOINTS.AUTH_FORGOT_PASSWORD, { email });
             setMessage(response.data.message);
         } catch (err) {
             setError(err.response?.data?.error || 'Failed to send reset link. Please try again.');

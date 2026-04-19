@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_ENDPOINTS } from '../config/api';
 import '../styles/Profile.css';
 
 const DEFAULT_AVATAR = (
@@ -17,9 +18,9 @@ const Profile = () => {
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+    const token = localStorage.getItem('auth_token');
     if (token) {
-      axios.get('/auth/me', { headers: { 'Authorization': `Bearer ${token}` } })
+      axios.get(API_ENDPOINTS.AUTH_ME, { headers: { 'Authorization': `Bearer ${token}` } })
         .then(res => setUser(res.data.user))
         .catch(() => setError('Failed to load user info.'));
     }
@@ -32,10 +33,10 @@ const Profile = () => {
   };
 
   const refreshUserInfo = async () => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+    const token = localStorage.getItem('auth_token');
     if (token) {
       try {
-        const res = await axios.get('/auth/me', { headers: { 'Authorization': `Bearer ${token}` } });
+        const res = await axios.get(API_ENDPOINTS.AUTH_ME, { headers: { 'Authorization': `Bearer ${token}` } });
         setUser(res.data.user);
         localStorage.setItem('auth_user', JSON.stringify(res.data.user));
       } catch {
@@ -50,10 +51,10 @@ const Profile = () => {
     setError('');
     setSuccess('');
     try {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+      const token = localStorage.getItem('auth_token');
       const formData = new FormData();
       formData.append('image', selectedFile);
-      await axios.post('/api/user/upload-profile-pic', formData, {
+      await axios.post(API_ENDPOINTS.USER_PROFILE_PIC_UPLOAD, formData, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
@@ -74,8 +75,8 @@ const Profile = () => {
     setError('');
     setSuccess('');
     try {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
-      await axios.delete('/api/user/delete-profile-pic', {
+      const token = localStorage.getItem('auth_token');
+      await axios.delete(API_ENDPOINTS.USER_PROFILE_PIC_DELETE, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       await refreshUserInfo();

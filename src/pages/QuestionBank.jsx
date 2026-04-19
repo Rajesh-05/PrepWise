@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { API_ENDPOINTS } from '../config/api';
 import '../styles/QuestionBank.css';
 import { FaTimes } from 'react-icons/fa';
 
@@ -49,8 +50,8 @@ const QuestionBank = () => {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-      const res = await fetch('/generate-questions', {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(API_ENDPOINTS.GENERATE_QUESTIONS, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

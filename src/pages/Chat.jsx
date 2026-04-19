@@ -1,10 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { API_ENDPOINTS, getAuthHeaders } from '../config/api';
+import { API_ENDPOINTS } from '../config/api';
 import '../styles/Chat.css';
-
-// Multi-Agent endpoint configuration
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 const Chat = () => {
     const [conversations, setConversations] = useState([
@@ -26,53 +23,44 @@ const Chat = () => {
     const inputRef = useRef(null);
     const liveRef = useRef(null);
 
-
-    // Fetch chat sessions from backend on mount, and persist in localStorage
+    // ── Fetch chat sessions from backend on mount ───────────────────────────
     useEffect(() => {
         const fetchChats = async () => {
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            const token = localStorage.getItem('auth_token');
             if (!token) return;
             try {
-                const response = await fetch('/api/chat-sessions', {
+                const response = await fetch(API_ENDPOINTS.CHAT_SESSIONS, {
                     method: 'GET',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const data = await response.json();
-                if (response.ok && data.sessions) {
+                if (response.ok && data.sessions && data.sessions.length > 0) {
                     const convs = data.sessions.map((s, idx) => ({
-                        id: s._id || s.session_id || idx,
+                        id:         s._id || s.session_id || idx,
                         session_id: s._id || s.session_id || idx,
-                        title: s.topic || 'Chat Session',
-                        messages: (s.messages || []).map(m => ({ role: m.role, content: m.content })),
-                        createdAt: s.started_at ? new Date(s.started_at) : new Date(),
-                        updatedAt: s.last_message_at ? new Date(s.last_message_at) : new Date()
+                        title:      s.topic || 'Chat Session',
+                        messages:   (s.messages || []).map(m => ({ role: m.role, content: m.content })),
+                        createdAt:  s.started_at      ? new Date(s.started_at)      : new Date(),
+                        updatedAt:  s.last_message_at ? new Date(s.last_message_at) : new Date()
                     }));
                     setConversations(convs);
                     localStorage.setItem('chat_conversations', JSON.stringify(convs));
-
-                    // Only set active if none selected (prevent overriding user selection if they clicked fast)
-                    setActiveConversationId(prev => (prev ? prev : (convs.length > 0 ? convs[0].id : null)));
+                    setActiveConversationId(prev => prev || (convs.length > 0 ? convs[0].id : null));
                 }
             } catch (err) {
-                console.error("Failed to fetch chats:", err);
-                // Keep existing localStorage data if fetch fails
+                console.error('Failed to fetch chats:', err);
             }
         };
         fetchChats();
     }, []);
 
-
     const activeConversation = conversations.find(c => c.id === activeConversationId);
-    // Memoize messages to avoid triggering useEffect on every render
     const messages = React.useMemo(() => activeConversation?.messages || [], [activeConversation]);
 
-    // Auto-scroll to bottom on new messages
+    // Auto-scroll
     useEffect(() => {
         if (listRef.current) {
-            listRef.current.scrollTo({
-                top: listRef.current.scrollHeight,
-                behavior: 'smooth'
-            });
+            listRef.current.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
         }
         const last = messages[messages.length - 1];
         if (last && liveRef.current && last.role === 'assistant') {
@@ -96,7 +84,7 @@ const Chat = () => {
         }
     }, []);
 
-    // Save conversations to localStorage
+    // Persist conversations
     useEffect(() => {
         if (conversations.length > 0) {
             localStorage.setItem('chat_conversations', JSON.stringify(conversations));
@@ -105,11 +93,7 @@ const Chat = () => {
 
     // Auto-close sidebar on mobile
     useEffect(() => {
-        const handleResize = () => {
-            if (window.innerWidth <= 768) {
-                setIsSidebarOpen(false);
-            }
-        };
+        const handleResize = () => { if (window.innerWidth <= 768) setIsSidebarOpen(false); };
         handleResize();
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
@@ -117,28 +101,23 @@ const Chat = () => {
 
     const createNewConversation = () => {
         const newConv = {
-            id: Date.now(),
-            title: 'New Conversation',
-            messages: [],
-            current_agent: null,
-            createdAt: new Date(),
-            updatedAt: new Date()
+            id: Date.now(), title: 'New Conversation',
+            messages: [], current_agent: null,
+            createdAt: new Date(), updatedAt: new Date()
         };
         setConversations(prev => [newConv, ...prev]);
-        localStorage.setItem('chat_conversations', JSON.stringify([newConv, ...conversations]));
         setActiveConversationId(newConv.id);
         if (window.innerWidth <= 768) setIsSidebarOpen(false);
     };
 
     const updateConversationTitle = (convId, firstMessage) => {
-        const title = firstMessage.length > 35 
-            ? firstMessage.substring(0, 35) + '...' 
+        const title = firstMessage.length > 35
+            ? firstMessage.substring(0, 35) + '...'
             : firstMessage;
-        setConversations(prev => prev.map(conv => 
-            conv.id === convId ? { ...conv, title } : conv
-        ));
+        setConversations(prev => prev.map(c => c.id === convId ? { ...c, title } : c));
     };
 
+    // ── Send message ────────────────────────────────────────────────────────
     const handleSend = async (e) => {
         e && e.preventDefault();
         if (!value.trim() || isLoading) return;
@@ -146,116 +125,99 @@ const Chat = () => {
         const userMessage = value.trim();
         setValue('');
         setError('');
+        if (inputRef.current) inputRef.current.style.height = 'auto';
 
-        // Reset textarea height
-        if (inputRef.current) {
-            inputRef.current.style.height = 'auto';
-        }
-
-        const newUserMsg = {
-            role: 'user',
-            content: userMessage,
-            timestamp: new Date().toISOString()
-        };
-
-        setConversations(prev => prev.map(conv => 
-            conv.id === activeConversationId 
-                ? { ...conv, messages: [...conv.messages, newUserMsg], updatedAt: new Date() } 
-                : conv
+        const newUserMsg = { role: 'user', content: userMessage, timestamp: new Date().toISOString() };
+        setConversations(prev => prev.map(c =>
+            c.id === activeConversationId
+                ? { ...c, messages: [...c.messages, newUserMsg], updatedAt: new Date() }
+                : c
         ));
 
-        if (messages.length === 0) {
-            updateConversationTitle(activeConversationId, userMessage);
-        }
-
+        if (messages.length === 0) updateConversationTitle(activeConversationId, userMessage);
         setIsLoading(true);
 
         try {
             const currentConv = conversations.find(c => c.id === activeConversationId);
-            const conversationMessages = currentConv?.messages || [];
-            const currentAgent = currentConv?.current_agent || null;
+            const token = localStorage.getItem('auth_token');
 
-            const response = await fetch(`${API_BASE_URL}/multi-agent/chat`, {
+            // FIX: use API_ENDPOINTS.MULTI_AGENT_CHAT instead of hardcoded URL
+            const response = await fetch(API_ENDPOINTS.MULTI_AGENT_CHAT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
                 body: JSON.stringify({
-                    query: userMessage,
-                    messages: conversationMessages,
-                    current_agent: currentAgent
+                    query:         userMessage,
+                    messages:      currentConv?.messages || [],
+                    current_agent: currentConv?.current_agent || null
                 })
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to get response');
+                const errData = await response.json();
+                throw new Error(errData.error || 'Failed to get response');
             }
 
             const data = await response.json();
-            
             const newAiMsg = {
-                role: 'assistant',
-                content: data.response,
-                category: data.category,
+                role:      'assistant',
+                content:   data.response,
+                category:  data.category,
                 timestamp: new Date().toISOString()
             };
 
-            setConversations(prev => prev.map(conv => 
-                conv.id === activeConversationId 
-                    ? { 
-                        ...conv, 
-                        messages: [...conv.messages, newAiMsg],
-                        current_agent: data.current_agent || conv.current_agent,
-                        updatedAt: new Date()
-                    } 
-                    : conv
+            setConversations(prev => prev.map(c =>
+                c.id === activeConversationId
+                    ? { ...c, messages: [...c.messages, newAiMsg],
+                        current_agent: data.current_agent || c.current_agent,
+                        updatedAt: new Date() }
+                    : c
             ));
 
         } catch (err) {
             console.error('Chat error:', err);
             setError(err.message || 'Failed to send message. Please try again.');
-            setConversations(prev => prev.map(conv => 
-                conv.id === activeConversationId 
-                    ? { ...conv, messages: conv.messages.slice(0, -1) } 
-                    : conv
+            // Roll back the user message on error
+            setConversations(prev => prev.map(c =>
+                c.id === activeConversationId
+                    ? { ...c, messages: c.messages.slice(0, -1) }
+                    : c
             ));
         } finally {
             setIsLoading(false);
-            // Re-focus input after send
             setTimeout(() => inputRef.current?.focus(), 100);
         }
     };
 
+    // ── Delete conversation ─────────────────────────────────────────────────
     const deleteConversation = async (convId) => {
         const conv = conversations.find(c => c.id === convId);
-        // If this conversation is from backend (has a session_id), delete from backend
+
+        // If this conversation exists in the backend, delete it there first
         if (conv && conv.session_id) {
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            // FIX: use API_ENDPOINTS.CHAT_SESSION_DELETE() instead of hardcoded '/api/chat-sessions/...'
+            const token = localStorage.getItem('auth_token');
             try {
-                const response = await fetch(`/api/chat-sessions/${conv.session_id}`, {
+                const response = await fetch(API_ENDPOINTS.CHAT_SESSION_DELETE(conv.session_id), {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (!response.ok) {
-                    console.error('Failed to delete chat session from backend');
-                    return; // Don't delete from frontend if backend deletion failed
+                    console.error('Failed to delete session from backend');
+                    return;
                 }
             } catch (err) {
-                console.error('Error deleting chat session:', err);
-                return; // Don't delete from frontend if backend deletion failed
+                console.error('Error deleting session:', err);
+                return;
             }
         }
 
-        // Delete from frontend
         if (conversations.length === 1) {
             const newId = Date.now();
-            setConversations([{
-                id: newId,
-                title: 'New Conversation',
-                messages: [],
-                current_agent: null,
-                createdAt: new Date(),
-                updatedAt: new Date()
-            }]);
+            setConversations([{ id: newId, title: 'New Conversation', messages: [],
+                                current_agent: null, createdAt: new Date(), updatedAt: new Date() }]);
             setActiveConversationId(newId);
         } else {
             const filtered = conversations.filter(c => c.id !== convId);
@@ -268,266 +230,173 @@ const Chat = () => {
     };
 
     const clearAllConversations = () => {
-        if (window.confirm('Clear all conversations? This cannot be undone.')) {
-            const newId = Date.now();
-            setConversations([{
-                id: newId,
-                title: 'New Conversation',
-                messages: [],
-                current_agent: null,
-                createdAt: new Date(),
-                updatedAt: new Date()
-            }]);
-            setActiveConversationId(newId);
-            localStorage.removeItem('chat_conversations');
-        }
+        if (!window.confirm('Clear all conversations? This cannot be undone.')) return;
+        const newId = Date.now();
+        setConversations([{ id: newId, title: 'New Conversation', messages: [],
+                            current_agent: null, createdAt: new Date(), updatedAt: new Date() }]);
+        setActiveConversationId(newId);
+        localStorage.removeItem('chat_conversations');
     };
 
     const exportConversation = (convId) => {
         const conv = conversations.find(c => c.id === convId);
         if (!conv) return;
-
-        let markdown = `# ${conv.title}\n\n`;
-        markdown += `**Created:** ${new Date(conv.createdAt).toLocaleString()}\n`;
-        markdown += `**Last Updated:** ${new Date(conv.updatedAt).toLocaleString()}\n`;
-        markdown += `**Messages:** ${conv.messages.length}\n\n---\n\n`;
-
-        conv.messages.forEach((msg) => {
+        let md = `# ${conv.title}\n\n`;
+        md += `**Created:** ${new Date(conv.createdAt).toLocaleString()}\n`;
+        md += `**Last Updated:** ${new Date(conv.updatedAt).toLocaleString()}\n`;
+        md += `**Messages:** ${conv.messages.length}\n\n---\n\n`;
+        conv.messages.forEach(msg => {
             const role = msg.role === 'user' ? '👤 You' : '🤖 AI Assistant';
-            const timestamp = msg.timestamp ? ` (${new Date(msg.timestamp).toLocaleTimeString()})` : '';
-            markdown += `## ${role}${timestamp}\n\n`;
-            if (msg.category) markdown += `*Category: ${msg.category}*\n\n`;
-            markdown += `${msg.content}\n\n---\n\n`;
+            md += `### ${role}\n${msg.content}\n\n`;
         });
-
-        const blob = new Blob([markdown], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${conv.title.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.md`;
-        document.body.appendChild(a);
+        const blob = new Blob([md], { type: 'text/markdown' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `${conv.title.replace(/[^a-z0-9]/gi, '_')}.md`;
         a.click();
-        document.body.removeChild(a);
         URL.revokeObjectURL(url);
     };
 
     const resizeInput = useCallback(() => {
-        if (!inputRef.current) return;
-        const ta = inputRef.current;
-        ta.style.height = 'auto';
-        ta.style.height = `${Math.min(150, ta.scrollHeight)}px`;
+        if (inputRef.current) {
+            inputRef.current.style.height = 'auto';
+            inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
+        }
     }, []);
 
-    const formatMessageContent = (content) => {
-        let formatted = content;
-        
-        formatted = formatted
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-        
-        formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
-            return `<pre class="code-block"><code class="language-${lang || 'plaintext'}">${code.trim()}</code></pre>`;
-        });
-        
-        formatted = formatted.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-        formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-        formatted = formatted.replace(/^### (.+)$/gm, '<h3 class="msg-h3">$1</h3>');
-        formatted = formatted.replace(/^## (.+)$/gm, '<h2 class="msg-h2">$1</h2>');
-        formatted = formatted.replace(/^# (.+)$/gm, '<h1 class="msg-h1">$1</h1>');
-        formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li class="numbered">$1</li>');
-        formatted = formatted.replace(/^[•\-]\s+(.+)$/gm, '<li>$1</li>');
-        
-        formatted = formatted.replace(/(<li(?:\s+class="numbered")?>.*?<\/li>\s*)+/g, (match) => {
-            if (match.includes('class="numbered"')) {
-                return `<ol class="msg-list">${match.replace(/\s+class="numbered"/g, '')}</ol>`;
-            }
-            return `<ul class="msg-list">${match}</ul>`;
-        });
-        
-        formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-        formatted = formatted.replace(/^&gt;\s+(.+)$/gm, '<blockquote>$1</blockquote>');
-        formatted = formatted.replace(/^---$/gm, '<hr>');
-        
-        formatted = formatted.replace(/\n\n+/g, '</p><p>');
-        formatted = `<p>${formatted}</p>`;
-        formatted = formatted.replace(/<p><\/p>/g, '');
-        formatted = formatted.replace(/<p>\s*<\/p>/g, '');
-        
-        formatted = formatted.replace(/<p>(.*?)<\/p>/gs, (match, content) => {
-            if (content.includes('<pre>') || content.includes('<ul>') || content.includes('<ol>') || 
-                content.includes('<h1>') || content.includes('<h2>') || content.includes('<h3>')) {
-                return `<p>${content}</p>`;
-            }
-            return `<p>${content.replace(/\n/g, '<br>')}</p>`;
-        });
-
-        return formatted;
-    };
-
+    // ── Category badge helper ───────────────────────────────────────────────
     const getCategoryBadge = (category) => {
-        const categoryMap = {
-            '1': { label: 'Learning', color: '#10b981', icon: '📚' },
-            '2': { label: 'Resume', color: '#8b5cf6', icon: '📝' },
-            '3': { label: 'Interview', color: '#f59e0b', icon: '🎤' },
-            '4': { label: 'Job Search', color: '#3b82f6', icon: '💼' },
-            'Tutorial': { label: 'Tutorial', color: '#10b981', icon: '📖' },
-            'Question': { label: 'Q&A', color: '#06b6d4', icon: '💡' }
+        const map = {
+            '0': { label: '💬 General',         color: '#6b7280' },
+            '1': { label: '📚 Learning',         color: '#3b82f6' },
+            '2': { label: '📝 Resume',           color: '#10b981' },
+            '3': { label: '🎤 Interview Prep',   color: '#8b5cf6' },
+            '4': { label: '💼 Job Search',       color: '#f59e0b' },
         };
-        const cat = categoryMap[category] || { label: 'AI Response', color: '#667eea', icon: '🤖' };
+        const badge = map[category?.trim()] || { label: `🤖 ${category || 'AI'}`, color: '#6b7280' };
         return (
-            <span className="category-badge" style={{ backgroundColor: `${cat.color}15`, color: cat.color }}>
-                <span className="badge-icon">{cat.icon}</span>
-                {cat.label}
+            <span style={{
+                background: badge.color, color: '#fff',
+                borderRadius: '999px', padding: '2px 10px',
+                fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.02em'
+            }}>
+                {badge.label}
             </span>
         );
     };
 
-    const formatTime = (timestamp) => {
-        if (!timestamp) return '';
-        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // ── Message content formatter ───────────────────────────────────────────
+    const formatMessageContent = (content) => {
+        if (!content) return '';
+        return content
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+            .replace(/`([^`]+)`/g,     '<code>$1</code>')
+            .replace(/```[\s\S]*?```/g, m =>
+                `<pre><code>${m.replace(/```[a-z]*/g,'').replace(/```/g,'').trim()}</code></pre>`)
+            .replace(/^#{1,3}\s(.+)$/gm, '<strong>$1</strong>')
+            .replace(/^[-*]\s(.+)$/gm,   '<li>$1</li>')
+            .replace(/(<li>.*<\/li>)/s,  '<ul>$1</ul>')
+            .replace(/\n/g, '<br>');
     };
 
-    const switchConversation = (convId) => {
-        setActiveConversationId(convId);
-        if (window.innerWidth <= 768) setIsSidebarOpen(false);
+    const formatTime = (ts) => {
+        if (!ts) return '';
+        try { return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+        catch { return ''; }
     };
 
+    // ── Render ──────────────────────────────────────────────────────────────
     return (
-        <div className={`chat-page ${isSidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
-            {/* Mobile overlay */}
-            {isSidebarOpen && (
-                <div 
-                    className="sidebar-overlay" 
-                    onClick={() => setIsSidebarOpen(false)}
-                    aria-hidden="true"
-                />
-            )}
-
+        <div className="chat-page">
             {/* Sidebar */}
-            <aside className={`chat-sidebar ${isSidebarOpen ? 'open' : ''}`}>
-                <div className="chat-sidebar-header">
-                    <h3>Conversations</h3>
-                    <div className="sidebar-header-actions">
-                        <button 
-                            className="icon-btn new-chat-btn" 
-                            onClick={createNewConversation}
-                            title="New conversation"
-                            aria-label="New conversation"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M12 5v14M5 12h14"/>
-                            </svg>
-                        </button>
-                        <button 
-                            className="icon-btn close-sidebar-btn"
-                            onClick={() => setIsSidebarOpen(false)}
-                            title="Close sidebar"
-                            aria-label="Close sidebar"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M15 18l-6-6 6-6"/>
-                            </svg>
-                        </button>
-                    </div>
+            <aside className={`chat-sidebar ${isSidebarOpen ? 'open' : 'closed'}`}>
+                <div className="sidebar-header">
+                    <button className="toggle-sidebar" onClick={() => setIsSidebarOpen(p => !p)}
+                            aria-label="Toggle sidebar">
+                        {isSidebarOpen ? '◀' : '▶'}
+                    </button>
+                    {isSidebarOpen && (
+                        <>
+                            <span className="sidebar-title">Conversations</span>
+                            <button className="new-conv-btn" onClick={createNewConversation}
+                                    title="New conversation">＋ New</button>
+                        </>
+                    )}
                 </div>
-                
-                <ul className="conversation-list">
-                    {conversations.map(conv => (
-                        <li
-                            key={conv.id}
-                            className={`conversation ${conv.id === activeConversationId ? 'active' : ''}`}
-                            onClick={() => switchConversation(conv.id)}
-                        >
-                            <div className="conv-icon">
-                                {conv.messages.length === 0 ? '✨' : '💬'}
-                            </div>
-                            <div className="conv-info">
-                                <div className="conv-title">{conv.title}</div>
-                                <div className="conv-sub">
-                                    {conv.messages.length === 0 
-                                        ? 'Start chatting' 
-                                        : `${conv.messages.length} ${conv.messages.length === 1 ? 'message' : 'messages'}`}
+
+                {isSidebarOpen && (
+                    <div className="conversations-list">
+                        {conversations.map(conv => (
+                            <div key={conv.id}
+                                 className={`conversation-item ${conv.id === activeConversationId ? 'active' : ''}`}
+                                 onClick={() => setActiveConversationId(conv.id)}>
+                                <div className="conv-info">
+                                    <span className="conv-title">{conv.title}</span>
+                                    <span className="conv-meta">
+                                        {conv.messages.length} msg
+                                        {conv.current_agent && ` · ${conv.current_agent}`}
+                                    </span>
+                                </div>
+                                <div className="conv-actions">
+                                    <button className="conv-action-btn"
+                                            onClick={e => { e.stopPropagation(); exportConversation(conv.id); }}
+                                            title="Export" aria-label="Export conversation">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                             stroke="currentColor" strokeWidth="2">
+                                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                                        </svg>
+                                    </button>
+                                    <button className="conv-action-btn delete"
+                                            onClick={e => { e.stopPropagation(); deleteConversation(conv.id); }}
+                                            title="Delete" aria-label="Delete conversation">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                             stroke="currentColor" strokeWidth="2">
+                                            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+                                            <path d="M10 11v6M14 11v6M9 6V4h6v2"/>
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
-                            <div className="conv-actions">
-                                <button 
-                                    className="conv-action-btn"
-                                    onClick={(e) => { e.stopPropagation(); exportConversation(conv.id); }}
-                                    aria-label="Export conversation"
-                                    title="Export"
-                                >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-                                    </svg>
-                                </button>
-                                <button 
-                                    className="conv-action-btn delete"
-                                    onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
-                                    aria-label="Delete conversation"
-                                    title="Delete"
-                                >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-
-                <div className="chat-sidebar-footer">
-                    <button className="clear-all-btn" onClick={clearAllConversations}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-                        </svg>
-                        Clear All
-                    </button>
-                </div>
-            </aside>
-
-            {/* Main Chat Area */}
-            <section className="chat-main">
-                {/* Chat Header */}
-                <div className="chat-header">
-                    <button 
-                        className="icon-btn toggle-sidebar-btn"
-                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                        aria-label={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
-                        title={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
-                    >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-                        </svg>
-                    </button>
-                    <div className="chat-header-title">
-                        <h2>{activeConversation?.title || 'New Conversation'}</h2>
-                        {activeConversation?.current_agent && (
-                            <span className="agent-indicator">
-                                {(() => {
-                                    const agentMap = {
-                                        'general': '🤖 PrepWise AI',
-                                        'learning_resource': '📚 Learning',
-                                        'tutorial': '📖 Tutorial',
-                                        'interview_preparation': '🎤 Interview',
-                                        'resume_making': '📝 Resume',
-                                        'job_search': '💼 Job Search'
-                                    };
-                                    return agentMap[activeConversation.current_agent] || '🤖 AI Assistant';
-                                })()}
-                            </span>
+                        ))}
+                        {conversations.length > 1 && (
+                            <button className="clear-all-btn" onClick={clearAllConversations}>
+                                🗑 Clear All
+                            </button>
                         )}
                     </div>
+                )}
+            </aside>
+
+            {/* Main chat area */}
+            <section className="chat-main">
+                <div className="chat-header">
+                    <div className="chat-header-left">
+                        {!isSidebarOpen && (
+                            <button className="toggle-sidebar" onClick={() => setIsSidebarOpen(true)}
+                                    aria-label="Open sidebar">▶</button>
+                        )}
+                        <h2 className="chat-title">
+                            {activeConversation?.title || 'Chat'}
+                            {activeConversation?.current_agent && (
+                                <span className="agent-badge">
+                                    {activeConversation.current_agent.replace('_', ' ')}
+                                </span>
+                            )}
+                        </h2>
+                    </div>
                     <div className="chat-header-actions">
-                        {messages.length > 0 && (
-                            <button 
-                                className="icon-btn"
-                                onClick={() => exportConversation(activeConversationId)}
-                                title="Export conversation"
-                                aria-label="Export conversation"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <button className="header-btn" onClick={createNewConversation} title="New conversation">
+                            ＋ New
+                        </button>
+                        {activeConversation && activeConversation.messages.length > 0 && (
+                            <button className="header-btn"
+                                    onClick={() => exportConversation(activeConversationId)}
+                                    title="Export conversation">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                     stroke="currentColor" strokeWidth="2">
                                     <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
                                 </svg>
                             </button>
@@ -537,84 +406,56 @@ const Chat = () => {
 
                 {/* Messages */}
                 <div className="message-list" ref={listRef}>
-                    {!activeConversationId ? (
-                        <div className="chat-welcome">
-                            <div className="welcome-icon">💬</div>
-                            <h3>No Active Conversation</h3>
-                            <p>Click the <strong>"New"</strong> button to start a new conversation with your AI Interview Coach!</p>
-                        </div>
-                    ) : messages.length === 0 ? (
+                    {messages.length === 0 ? (
                         <div className="chat-welcome">
                             <div className="welcome-icon">🎓</div>
                             <h3>PrepWise AI Career Assistant</h3>
-                            <p>Your intelligent multi-agent assistant for career success. Ask me anything about learning, resumes, interviews, or job searching.</p>
+                            <p>Your intelligent multi-agent assistant. Ask about learning, resumes, interviews, or job searching.</p>
                             <div className="feature-grid">
-                                <button className="feature-card" onClick={() => { setValue('Create a tutorial on machine learning basics'); inputRef.current?.focus(); }}>
-                                    <span className="feature-icon">📚</span>
-                                    <h4>Learning & Tutorials</h4>
-                                    <p>Master topics with tutorials and code examples</p>
-                                </button>
-                                <button className="feature-card" onClick={() => { setValue('Help me build a resume for a software engineering role'); inputRef.current?.focus(); }}>
-                                    <span className="feature-icon">📝</span>
-                                    <h4>Resume Building</h4>
-                                    <p>Create ATS-optimized resumes</p>
-                                </button>
-                                <button className="feature-card" onClick={() => { setValue('Give me interview questions for a data scientist position'); inputRef.current?.focus(); }}>
-                                    <span className="feature-icon">🎤</span>
-                                    <h4>Interview Prep</h4>
-                                    <p>Practice with curated questions</p>
-                                </button>
-                                <button className="feature-card" onClick={() => { setValue('Search for remote React developer jobs'); inputRef.current?.focus(); }}>
-                                    <span className="feature-icon">💼</span>
-                                    <h4>Job Search</h4>
-                                    <p>Discover tailored opportunities</p>
-                                </button>
+                                {[
+                                    { prompt: 'Create a tutorial on machine learning basics', icon: '📚', title: 'Learning & Tutorials', desc: 'Master topics with tutorials and examples' },
+                                    { prompt: 'Help me build a resume for a software engineering role', icon: '📝', title: 'Resume Building', desc: 'Create ATS-optimized resumes' },
+                                    { prompt: 'Give me interview questions for a data scientist position', icon: '🎤', title: 'Interview Prep', desc: 'Practice with curated questions' },
+                                    { prompt: 'Search for remote React developer jobs', icon: '💼', title: 'Job Search', desc: 'Discover tailored opportunities' },
+                                ].map(({ prompt, icon, title, desc }) => (
+                                    <button key={title} className="feature-card"
+                                            onClick={() => { setValue(prompt); inputRef.current?.focus(); }}>
+                                        <span className="feature-icon">{icon}</span>
+                                        <h4>{title}</h4>
+                                        <p>{desc}</p>
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     ) : (
                         <div className="messages-container">
                             <AnimatePresence>
-                                {messages.map((msg, index) => (
-                                    <motion.div
-                                        key={index}
+                                {messages.map((msg, idx) => (
+                                    <motion.div key={idx}
                                         initial={{ opacity: 0, y: 12 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ duration: 0.25, ease: 'easeOut' }}
-                                        className={`message ${msg.role === 'user' ? 'user' : 'assistant'}`}
-                                    >
-                                        <div className="message-avatar">
-                                            {msg.role === 'user' ? '👤' : '🤖'}
-                                        </div>
+                                        className={`message ${msg.role === 'user' ? 'user' : 'assistant'}`}>
+                                        <div className="message-avatar">{msg.role === 'user' ? '👤' : '🤖'}</div>
                                         <div className="message-content">
                                             {msg.category && (
-                                                <div className="message-category">
-                                                    {getCategoryBadge(msg.category)}
-                                                </div>
+                                                <div className="message-category">{getCategoryBadge(msg.category)}</div>
                                             )}
-                                            <div 
-                                                className="message-text"
-                                                dangerouslySetInnerHTML={{ __html: formatMessageContent(msg.content) }}
-                                            />
-                                            <div className="message-time">
-                                                {formatTime(msg.timestamp)}
-                                            </div>
+                                            <div className="message-text"
+                                                 dangerouslySetInnerHTML={{ __html: formatMessageContent(msg.content) }} />
+                                            <div className="message-time">{formatTime(msg.timestamp)}</div>
                                         </div>
                                     </motion.div>
                                 ))}
                             </AnimatePresence>
-                            
+
                             {isLoading && (
-                                <motion.div
-                                    initial={{ opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="message assistant"
-                                >
+                                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                                            className="message assistant">
                                     <div className="message-avatar">🤖</div>
                                     <div className="message-content">
                                         <div className="typing-indicator">
-                                            <span></span>
-                                            <span></span>
-                                            <span></span>
+                                            <span/><span/><span/>
                                             <span className="typing-label">Thinking...</span>
                                         </div>
                                     </div>
@@ -625,25 +466,21 @@ const Chat = () => {
                 </div>
 
                 {/* ARIA live region */}
-                <div ref={liveRef} className="sr-only" aria-live="polite" aria-atomic="true"></div>
+                <div ref={liveRef} className="sr-only" aria-live="polite" aria-atomic="true" />
 
                 {/* Error */}
                 <AnimatePresence>
                     {error && (
-                        <motion.div 
-                            className="chat-error"
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 10 }}
-                        >
+                        <motion.div className="chat-error"
+                            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}>
                             <span className="error-icon">⚠️</span>
                             <span className="error-text">{error}</span>
-                            <button className="error-dismiss" onClick={() => setError('')} aria-label="Dismiss error">×</button>
+                            <button className="error-dismiss" onClick={() => setError('')} aria-label="Dismiss">×</button>
                         </motion.div>
                     )}
                 </AnimatePresence>
 
-                {/* Input Area */}
+                {/* Input */}
                 <form className="chat-input" onSubmit={handleSend}>
                     <div className="input-wrapper">
                         <textarea
@@ -653,34 +490,24 @@ const Chat = () => {
                             onChange={e => { setValue(e.target.value); resizeInput(); }}
                             rows={1}
                             aria-label="Type your message"
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSend();
-                                }
-                            }}
+                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                             onInput={resizeInput}
                             disabled={isLoading}
                         />
-                        <button 
-                            type="submit" 
-                            className={`send-btn ${isLoading ? 'loading' : ''} ${value.trim() ? 'active' : ''}`}
-                            disabled={isLoading || !value.trim()}
-                            title="Send message (Enter)"
-                            aria-label="Send message"
-                        >
-                            {isLoading ? (
-                                <div className="send-spinner" />
-                            ) : (
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                        <button type="submit"
+                                className={`send-btn ${isLoading ? 'loading' : ''} ${value.trim() ? 'active' : ''}`}
+                                disabled={isLoading || !value.trim()}
+                                title="Send (Enter)" aria-label="Send message">
+                            {isLoading ? <div className="send-spinner" /> : (
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                                     stroke="currentColor" strokeWidth="2">
+                                    <line x1="22" y1="2" x2="11" y2="13"/>
+                                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
                                 </svg>
                             )}
                         </button>
                     </div>
-                    <div className="input-hint">
-                        <kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for new line
-                    </div>
+                    <div className="input-hint"><kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line</div>
                 </form>
             </section>
         </div>
