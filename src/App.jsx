@@ -27,18 +27,16 @@ axios.defaults.baseURL = API_BASE_URL;
 function AppContent() {
     const location = useLocation();
 
-    // Global Google OAuth token extraction
+    // Global Google OAuth token extraction (from query params)
     useEffect(() => {
-        if (window.location.hash.includes('session_token')) {
-            const params = new URLSearchParams(window.location.hash.substring(1));
-            const sessionToken = params.get('session_token');
-            if (sessionToken) {
-                localStorage.setItem('session_token', sessionToken);
-                localStorage.setItem('auth_token', sessionToken); // For Header compatibility
-                console.log('App.jsx: session_token set globally:', sessionToken);
-                // Remove token from URL hash for cleanliness
-                window.location.hash = '';
-            }
+        const params = new URLSearchParams(window.location.search);
+        const sessionToken = params.get('session_token');
+        if (sessionToken) {
+            localStorage.setItem('session_token', sessionToken);
+            localStorage.setItem('auth_token', sessionToken); // For Header compatibility
+            console.log('App.jsx: session_token set globally:', sessionToken);
+            // Remove token from URL for cleanliness
+            window.history.replaceState({}, document.title, window.location.pathname);
         }
     }, []);
 

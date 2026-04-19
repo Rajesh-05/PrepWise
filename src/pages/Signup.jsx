@@ -117,19 +117,18 @@ const Signup = () => {
         window.location.href = '/login/google';
     };
 
-    // Listen for Google login callback (session_token in URL hash)
+    // Listen for Google login callback (session_token in URL query params)
     useEffect(() => {
-        if (window.location.hash.includes('session_token')) {
-            const params = new URLSearchParams(window.location.hash.substring(1));
-            const sessionToken = params.get('session_token');
-            if (sessionToken) {
-                localStorage.setItem('session_token', sessionToken);
-                axios.post('/auto-login', { session_token: sessionToken })
-                    .then(res => {
-                        localStorage.setItem('auth_user', JSON.stringify(res.data.user));
-                        navigate('/', { replace: true });
-                    });
-            }
+        const params = new URLSearchParams(window.location.search);
+        const sessionToken = params.get('session_token');
+        if (sessionToken) {
+            localStorage.setItem('session_token', sessionToken);
+            localStorage.setItem('auth_token', sessionToken);
+            axios.post('/auto-login', { session_token: sessionToken })
+                .then(res => {
+                    localStorage.setItem('auth_user', JSON.stringify(res.data.user));
+                    navigate('/', { replace: true });
+                });
         }
     }, [navigate]);
 

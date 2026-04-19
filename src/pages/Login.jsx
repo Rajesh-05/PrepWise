@@ -69,33 +69,31 @@ const Login = () => {
         window.location.href = API_ENDPOINTS.AUTH_GOOGLE_LOGIN;
     };
 
-    // Listen for Google login callback (session_token in URL hash)
+    // Listen for Google login callback (session_token in URL query params)
     useEffect(() => {
-        if (window.location.hash.includes('session_token')) {
-            const params = new URLSearchParams(window.location.hash.substring(1));
-            const sessionToken = params.get('session_token');
-            if (sessionToken) {
-                localStorage.setItem('session_token', sessionToken);
-                localStorage.setItem('auth_token', sessionToken); // Ensure Header detects token
-                console.log('Login.jsx: session_token set:', sessionToken);
-                // Fetch user profile
-                axios.get('/auth/me', {
-                    headers: {
-                        'Authorization': `Bearer ${sessionToken}`
-                    }
+        const params = new URLSearchParams(window.location.search);
+        const sessionToken = params.get('session_token');
+        if (sessionToken) {
+            localStorage.setItem('session_token', sessionToken);
+            localStorage.setItem('auth_token', sessionToken); // Ensure Header detects token
+            console.log('Login.jsx: session_token set:', sessionToken);
+            // Fetch user profile
+            axios.get('/auth/me', {
+                headers: {
+                    'Authorization': `Bearer ${sessionToken}`
+                }
+            })
+                .then(res => {
+                    console.log('Login.jsx: /auth/me response:', res.data);
+                    localStorage.setItem('auth_user', JSON.stringify(res.data.user));
+                    setToast({ show: true, message: 'Login successful with Google!', type: 'success' });
+                    setTimeout(() => navigate('/', { replace: true }), 1000);
                 })
-                    .then(res => {
-                        console.log('Login.jsx: /auth/me response:', res.data);
-                        localStorage.setItem('auth_user', JSON.stringify(res.data.user));
-                        setToast({ show: true, message: 'Login successful with Google!', type: 'success' });
-                        setTimeout(() => navigate('/', { replace: true }), 1000);
-                    })
-                    .catch(err => {
-                        console.error('Login.jsx: Error fetching user after OAuth:', err);
-                        setToast({ show: true, message: 'Failed to complete Google login', type: 'error' });
-                        setTimeout(() => navigate('/login'), 1500);
-                    });
-            }
+                .catch(err => {
+                    console.error('Login.jsx: Error fetching user after OAuth:', err);
+                    setToast({ show: true, message: 'Failed to complete Google login', type: 'error' });
+                    setTimeout(() => navigate('/login'), 1500);
+                });
         }
     }, [navigate]);
 
