@@ -30,10 +30,10 @@ const Chat = () => {
     // Fetch chat sessions from backend on mount, and persist in localStorage
     useEffect(() => {
         const fetchChats = async () => {
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            const token = localStorage.getItem('auth_token');
             if (!token) return;
             try {
-                const response = await fetch('/api/chat-sessions', {
+                const response = await fetch(API_ENDPOINTS.CHAT_SESSIONS, {
                     method: 'GET',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });

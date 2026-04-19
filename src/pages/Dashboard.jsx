@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_ENDPOINTS } from '../config/api';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
@@ -11,13 +12,13 @@ const Dashboard = () => {
     const navigate = useNavigate();
 
     const fetchDashboardData = useCallback(async () => {
-        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        const token = localStorage.getItem('auth_token');
         if (!token) {
             navigate('/login');
             return;
         }
         try {
-            const response = await fetch('/api/dashboard-info', {
+            const response = await fetch(API_ENDPOINTS.DASHBOARD_INFO, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${token}`

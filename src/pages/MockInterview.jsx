@@ -65,7 +65,7 @@ const MockInterview = () => {
         if (!vapi) { alert('Vapi SDK not initialized. Check your internet connection.'); return; }
         setLoading(true);
         try {
-            const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
+            const token = localStorage.getItem('auth_token');
             const response = await fetch(API_ENDPOINTS.VAPI_ASSISTANT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -112,8 +112,8 @@ const MockInterview = () => {
                 .join('\n\n');
             const duration = interviewData.endTime && interviewData.startTime
                 ? (interviewData.endTime - interviewData.startTime) / 1000 / 60 : 0;
-            const token = localStorage.getItem('auth_token') || localStorage.getItem('session_token');
-            const response = await fetch('/api/vapi/generate-feedback', {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(API_ENDPOINTS.VAPI_FEEDBACK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ jobDescription: jd, transcript, duration: Math.round(duration) })
