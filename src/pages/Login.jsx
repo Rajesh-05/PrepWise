@@ -1,28 +1,88 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import Toast from '../components/Toast';
-import { API_ENDPOINTS, getAuthHeaders } from '../config/api';
+import { API_ENDPOINTS } from '../config/api';
 import '../styles/Login.css';
 
 const Login = () => {
-    const [formData, setFormData] = useState({
-        email: '',
-        password: '',
-        rememberMe: false
-    });
-
-    const [isLoading, setIsLoading] = useState(false);
-    const [serverError, setServerError] = useState('');
+    const [formData, setFormData] = useState({ email: '', password: '', rememberMe: false });
+    const [isLoading, setIsLoading]   = useState(false);
+    const [oauthLoading, setOauthLoading] = useState(false);
+    const [serverError, setServerError]   = useState('');
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
-    const navigate = useNavigate();
 
+    const navigate  = useNavigate();
+    const location  = useLocation();
+
+    // Ref prevents duplicate OAuth processing in React 18 Strict Mode
+    const oauthHandled = useRef(false);
+
+    // ── STEP 1: Handle Google OAuth callback ─────────────────────────────────
+    // Backend redirects to: /login?session_token=<JWT>
+    // We read it here, store it, fetch the user, then navigate home.
+    useEffect(() => {
+        const params       = new URLSearchParams(location.search);
+        const sessionToken = params.get('session_token');
+
+        if (!sessionToken || oauthHandled.current) return;
+        oauthHandled.current = true;
+
+        setOauthLoading(true);
+
+        // Store the token immediately so all subsequent requests are authenticated
+        localStorage.setItem('auth_token', sessionToken);
+
+        // Clean the token out of the URL bar without adding a history entry
+        window.history.replaceState({}, document.title, window.location.pathname);
+
+        // Fetch the user profile to populate auth_user
+        axios.get(API_ENDPOINTS.AUTH_ME, {
+            headers: { Authorization: `Bearer ${sessionToken}` }
+        })
+            .then(res => {
+                localStorage.setItem('auth_user', JSON.stringify(res.data.user));
+                setToast({ show: true, message: 'Signed in with Google!', type: 'success' });
+                setTimeout(() => navigate('/', { replace: true }), 800);
+            })
+            .catch(err => {
+                console.error('Google OAuth /auth/me failed:', err);
+                localStorage.removeItem('auth_token');
+                oauthHandled.current = false;
+                setOauthLoading(false);
+                setServerError('Google sign-in failed — please try again.');
+                setToast({ show: true, message: 'Google sign-in failed', type: 'error' });
+            });
+    }, [location.search, navigate]);
+
+    // ── STEP 2: Auto-redirect if already logged in ───────────────────────────
+    // Skip if we are in the middle of processing an OAuth callback
+    useEffect(() => {
+        const hasOAuthParam = new URLSearchParams(location.search).has('session_token');
+        if (hasOAuthParam) return; // Let the OAuth effect handle it
+
+        const token = localStorage.getItem('auth_token');
+        if (!token) return;
+
+        axios.get(API_ENDPOINTS.AUTH_ME, {
+            headers: { Authorization: `Bearer ${token}` }
+        })
+            .then(res => {
+                localStorage.setItem('auth_user', JSON.stringify(res.data.user));
+                navigate('/', { replace: true });
+            })
+            .catch(() => {
+                // Token is invalid / expired — clear it and let the user log in
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('auth_user');
+            });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Run only on mount
+
+    // ── Email / password login ───────────────────────────────────────────────
     const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: type === 'checkbox' ? checked : value
-        }));
+        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     };
 
     const handleSubmit = async (e) => {
@@ -31,15 +91,14 @@ const Login = () => {
         setServerError('');
         try {
             const res = await axios.post(API_ENDPOINTS.AUTH_LOGIN, {
-                email: formData.email,
-                password: formData.password
+                email:    formData.email,
+                password: formData.password,
             });
             const { token, user } = res.data;
-            // Store token; for a production app consider httpOnly cookies via server
             localStorage.setItem('auth_token', token);
             localStorage.setItem('auth_user', JSON.stringify(user));
             setToast({ show: true, message: 'Login successful! Redirecting...', type: 'success' });
-            setTimeout(() => navigate('/', { replace: true }), 1000);
+            setTimeout(() => navigate('/', { replace: true }), 800);
         } catch (err) {
             const msg = err?.response?.data?.error || 'Failed to sign in. Please check your credentials.';
             setServerError(msg);
@@ -49,68 +108,31 @@ const Login = () => {
         }
     };
 
-    // Auto-login if auth_token exists (already set by Google OAuth callback)
-    useEffect(() => {
-        const token = localStorage.getItem('auth_token');
-        if (token) {
-            // Token exists, fetch user profile
-            axios.get(API_ENDPOINTS.AUTH_ME, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-                .then(res => {
-                    localStorage.setItem('auth_user', JSON.stringify(res.data.user));
-                    navigate('/', { replace: true });
-                })
-                .catch(() => {
-                    localStorage.removeItem('auth_token');
-                });
-        }
-    }, [navigate]);
-
-    // Google login handler
     const handleGoogleLogin = () => {
+        // Redirect the browser directly to the backend Google OAuth endpoint
         window.location.href = API_ENDPOINTS.AUTH_GOOGLE_LOGIN;
     };
 
-    // Listen for Google login callback (session_token in URL query params)
-    useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const sessionToken = params.get('session_token');
-        if (sessionToken) {
-            localStorage.setItem('session_token', sessionToken);
-            localStorage.setItem('auth_token', sessionToken); // Ensure Header detects token
-            console.log('Login.jsx: session_token set:', sessionToken);
-            // Fetch user profile
-            axios.get('/auth/me', {
-                headers: {
-                    'Authorization': `Bearer ${sessionToken}`
-                }
-            })
-                .then(res => {
-                    console.log('Login.jsx: /auth/me response:', res.data);
-                    localStorage.setItem('auth_user', JSON.stringify(res.data.user));
-                    setToast({ show: true, message: 'Login successful with Google!', type: 'success' });
-                    setTimeout(() => navigate('/', { replace: true }), 1000);
-                })
-                .catch(err => {
-                    console.error('Login.jsx: Error fetching user after OAuth:', err);
-                    setToast({ show: true, message: 'Failed to complete Google login', type: 'error' });
-                    setTimeout(() => navigate('/login'), 1500);
-                });
-        }
-    }, [navigate]);
+    // ── Render ───────────────────────────────────────────────────────────────
+    if (oauthLoading) {
+        return (
+            <div className="login-page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div className="spinner" style={{ margin: '0 auto 1rem' }}></div>
+                    <p style={{ color: '#0F2D5C', fontWeight: 600 }}>Completing Google sign-in…</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="login-page">
-            {/* Back to Home Link */}
             <div className="back-to-home">
-                <Link to="/" className="back-link">
-                    ← Back to Home
-                </Link>
+                <Link to="/" className="back-link">← Back to Home</Link>
             </div>
 
             <div className="login-container">
-                {/* Left Side - Branding */}
+                {/* Left branding */}
                 <div className="login-branding">
                     <div className="branding-content">
                         <div className="logo-section">
@@ -118,36 +140,25 @@ const Login = () => {
                             <h1>PrepWise</h1>
                             <p>Your Career Toolkit</p>
                         </div>
-
                         <div className="branding-features">
-                            <div className="feature-item">
-                                <div className="feature-icon">🎤</div>
-                                <div className="feature-text">
-                                    <h3>Interview Practice</h3>
-                                    <p>Practice with a coach that gives you honest, detailed feedback</p>
+                            {[
+                                { icon: '🎤', title: 'Interview Practice', desc: 'Practice with a coach that gives you honest, detailed feedback' },
+                                { icon: '📋', title: 'Resume Coach',       desc: 'Build ATS-friendly resumes tailored to each job description' },
+                                { icon: '📚', title: 'Question Bank',      desc: 'Real questions from top companies, with model answers' },
+                            ].map(({ icon, title, desc }) => (
+                                <div className="feature-item" key={title}>
+                                    <div className="feature-icon">{icon}</div>
+                                    <div className="feature-text">
+                                        <h3>{title}</h3>
+                                        <p>{desc}</p>
+                                    </div>
                                 </div>
-                            </div>
-
-                            <div className="feature-item">
-                                <div className="feature-icon">📋</div>
-                                <div className="feature-text">
-                                    <h3>Resume Coach</h3>
-                                    <p>Build ATS-friendly resumes tailored to each job description</p>
-                                </div>
-                            </div>
-
-                            <div className="feature-item">
-                                <div className="feature-icon">📚</div>
-                                <div className="feature-text">
-                                    <h3>Question Bank</h3>
-                                    <p>Real questions from top companies, with model answers</p>
-                                </div>
-                            </div>
+                            ))}
                         </div>
                     </div>
                 </div>
 
-                {/* Right Side - Login Form */}
+                {/* Right form */}
                 <div className="login-form-section">
                     <div className="form-container">
                         <div className="form-header">
@@ -159,16 +170,11 @@ const Login = () => {
                             <div className="form-group">
                                 <label htmlFor="email">Email Address</label>
                                 <div className="input-wrapper">
-                                    {/* <span className="input-icon">📧</span> */}
                                     <input
-                                        type="email"
-                                        id="email"
-                                        name="email"
-                                        value={formData.email}
-                                        onChange={handleInputChange}
+                                        type="email" id="email" name="email"
+                                        value={formData.email} onChange={handleInputChange}
                                         placeholder="Enter your email"
-                                        autoComplete="email"
-                                        required
+                                        autoComplete="email" required
                                     />
                                 </div>
                             </div>
@@ -176,52 +182,32 @@ const Login = () => {
                             <div className="form-group">
                                 <label htmlFor="password">Password</label>
                                 <div className="input-wrapper">
-                                    {/* <span className="input-icon">🔒</span> */}
                                     <input
-                                        type="password"
-                                        id="password"
-                                        name="password"
-                                        value={formData.password}
-                                        onChange={handleInputChange}
+                                        type="password" id="password" name="password"
+                                        value={formData.password} onChange={handleInputChange}
                                         placeholder="Enter your password"
-                                        autoComplete="current-password"
-                                        required
+                                        autoComplete="current-password" required
                                     />
                                 </div>
                             </div>
 
                             <div className="form-options">
                                 <label className="checkbox-container">
-                                    <input
-                                        type="checkbox"
-                                        name="rememberMe"
-                                        checked={formData.rememberMe}
-                                        onChange={handleInputChange}
-                                    />
+                                    <input type="checkbox" name="rememberMe"
+                                           checked={formData.rememberMe} onChange={handleInputChange} />
                                     <span className="checkmark"></span>
                                     Remember me
                                 </label>
                                 <Link to="/forgot-password" className="forgot-link">Forgot Password?</Link>
                             </div>
 
-                            <button
-                                type="submit"
-                                className={`login-btn ${isLoading ? 'loading' : ''}`}
-                                disabled={isLoading}
-                            >
-                                {isLoading ? (
-                                    <>
-                                        <span className="spinner"></span>
-                                        Signing In...
-                                    </>
-                                ) : (
-                                    'Sign In'
-                                )}
+                            <button type="submit"
+                                    className={`login-btn ${isLoading ? 'loading' : ''}`}
+                                    disabled={isLoading}>
+                                {isLoading ? <><span className="spinner"></span>Signing In…</> : 'Sign In'}
                             </button>
 
-                            <div className="divider">
-                                <span>or</span>
-                            </div>
+                            <div className="divider"><span>or</span></div>
 
                             <button type="button" className="google-btn" onClick={handleGoogleLogin}>
                                 <span className="google-icon">🔍</span>
@@ -229,7 +215,8 @@ const Login = () => {
                             </button>
 
                             {serverError && (
-                                <div className="error-message" role="alert" aria-live="polite" style={{ marginTop: '0.5rem' }}>
+                                <div className="error-message" role="alert" aria-live="polite"
+                                     style={{ marginTop: '0.5rem' }}>
                                     {serverError}
                                 </div>
                             )}
@@ -241,12 +228,10 @@ const Login = () => {
                     </div>
                 </div>
             </div>
+
             {toast.show && (
-                <Toast
-                    message={toast.message}
-                    type={toast.type}
-                    onClose={() => setToast({ ...toast, show: false })}
-                />
+                <Toast message={toast.message} type={toast.type}
+                       onClose={() => setToast(t => ({ ...t, show: false }))} />
             )}
         </div>
     );
