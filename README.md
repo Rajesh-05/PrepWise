@@ -4,6 +4,12 @@
 
 ---
 
+## 🎥 PrepWise AI Project Demo
+
+▶️ **Watch the PrepWise AI Project Demo:** [YouTube Demo Video](https://youtu.be/_-HgQjbb3U0)
+
+---
+
 ## 🎯 Key Features
 
 ### 1. **📝 Smart Resume Builder & Evaluator**
